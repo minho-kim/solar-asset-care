@@ -1,0 +1,148 @@
+type Region = {
+  id: string;
+  kind: 'hot' | 'cold';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  areaPercent: number;
+  score: number;
+};
+
+type AnalyzePayload = {
+  width?: number;
+  height?: number;
+  values?: number[];
+  sensitivity?: number;
+};
+
+const MAX_PIXELS = 96_000;
+
+function percentile(sorted: number[], quantile: number) {
+  if (sorted.length === 0) return 0;
+  const index = Math.min(sorted.length - 1, Math.max(0, Math.round((sorted.length - 1) * quantile)));
+  return sorted[index];
+}
+
+function collectRegions(
+  values: number[],
+  width: number,
+  height: number,
+  threshold: number,
+  kind: 'hot' | 'cold',
+) {
+  const visited = new Uint8Array(values.length);
+  const minimumArea = Math.max(4, Math.floor(values.length * 0.0015));
+  const regions: Region[] = [];
+  const matches = (value: number) => kind === 'hot' ? value >= threshold : value <= threshold;
+
+  for (let start = 0; start < values.length; start += 1) {
+    if (visited[start] || !matches(values[start])) continue;
+
+    const stack = [start];
+    visited[start] = 1;
+    let count = 0;
+    let minX = width;
+    let maxX = 0;
+    let minY = height;
+    let maxY = 0;
+    let sum = 0;
+    let extreme = kind === 'hot' ? 0 : 1;
+
+    while (stack.length) {
+      const index = stack.pop()!;
+      const x = index % width;
+      const y = Math.floor(index / width);
+      const value = values[index];
+      count += 1;
+      sum += value;
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y);
+      maxY = Math.max(maxY, y);
+      extreme = kind === 'hot' ? Math.max(extreme, value) : Math.min(extreme, value);
+
+      const neighbors = [index - 1, index + 1, index - width, index + width];
+      for (const neighbor of neighbors) {
+        if (neighbor < 0 || neighbor >= values.length || visited[neighbor]) continue;
+        const neighborX = neighbor % width;
+        if (Math.abs(neighborX - x) > 1) continue;
+        if (!matches(values[neighbor])) continue;
+        visited[neighbor] = 1;
+        stack.push(neighbor);
+      }
+    }
+
+    if (count < minimumArea) continue;
+    const average = sum / count;
+    const score = kind === 'hot'
+      ? Math.round((average * 0.65 + extreme * 0.35) * 100)
+      : Math.round(((1 - average) * 0.65 + (1 - extreme) * 0.35) * 100);
+
+    regions.push({
+      id: `${kind}-${regions.length + 1}`,
+      kind,
+      x: minX / width,
+      y: minY / height,
+      width: Math.max(1, maxX - minX + 1) / width,
+      height: Math.max(1, maxY - minY + 1) / height,
+      areaPercent: Number(((count / values.length) * 100).toFixed(2)),
+      score,
+    });
+  }
+
+  return regions.sort((a, b) => b.score - a.score).slice(0, 5);
+}
+
+export async function POST(request: Request) {
+  let payload: AnalyzePayload;
+  try {
+    payload = await request.json() as AnalyzePayload;
+  } catch {
+    return Response.json({ error: '요청 데이터를 읽을 수 없습니다.' }, { status: 400 });
+  }
+
+  const width = Math.floor(payload.width ?? 0);
+  const height = Math.floor(payload.height ?? 0);
+  const values = payload.values;
+  const sensitivity = Math.min(100, Math.max(1, payload.sensitivity ?? 72));
+
+  if (!width || !height || !Array.isArray(values) || values.length !== width * height) {
+    return Response.json({ error: '픽셀 배열의 크기가 올바르지 않습니다.' }, { status: 400 });
+  }
+  if (values.length > MAX_PIXELS) {
+    return Response.json({ error: '분석용 이미지는 96,000픽셀 이하로 축소해야 합니다.' }, { status: 413 });
+  }
+  if (values.some((value) => !Number.isFinite(value) || value < 0 || value > 1)) {
+    return Response.json({ error: '픽셀 값은 0과 1 사이여야 합니다.' }, { status: 400 });
+  }
+
+  const sorted = [...values].sort((a, b) => a - b);
+  const spread = percentile(sorted, 0.95) - percentile(sorted, 0.05);
+  const hotQuantile = 0.82 + (sensitivity / 100) * 0.13;
+  const coldQuantile = 1 - hotQuantile;
+  const hotThreshold = percentile(sorted, hotQuantile);
+  const coldThreshold = percentile(sorted, coldQuantile);
+  const hotRegions = collectRegions(values, width, height, hotThreshold, 'hot');
+  const coldRegions = collectRegions(values, width, height, coldThreshold, 'cold');
+
+  return Response.json({
+    mode: 'relative-rule-analysis',
+    disclaimer: '색상 분포를 이용한 상대 비교이며 실제 섭씨 온도나 고장 확정값이 아닙니다.',
+    width,
+    height,
+    sensitivity,
+    thresholds: {
+      hot: Number((hotThreshold * 100).toFixed(1)),
+      cold: Number((coldThreshold * 100).toFixed(1)),
+    },
+    summary: {
+      heatIndex: Math.round(percentile(sorted, 0.95) * 100),
+      contrast: Math.round(spread * 100),
+      hotCandidates: hotRegions.length,
+      coldCandidates: coldRegions.length,
+    },
+    regions: [...hotRegions, ...coldRegions],
+    analyzedAt: new Date().toISOString(),
+  });
+}
