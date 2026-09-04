@@ -365,11 +365,16 @@ function AuthPanel({ supabase }: { supabase: SupabaseClient<Database> }) {
     event.preventDefault();
     setBusy(true);
     setNotice(null);
+    const redirectTo =
+      process.env.NEXT_PUBLIC_AUTH_REDIRECT_URL?.trim() ||
+      `${window.location.origin}/`;
     try {
       if (mode === 'forgot') {
         const { error } = await supabase.auth.resetPasswordForEmail(
           email.trim(),
-          { redirectTo: `${window.location.origin}/` },
+          {
+            redirectTo,
+          },
         );
         if (error) throw error;
         setNotice({
@@ -381,6 +386,7 @@ function AuthPanel({ supabase }: { supabase: SupabaseClient<Database> }) {
           email: email.trim(),
           password,
           options: {
+            emailRedirectTo: redirectTo,
             data: { name: name.trim(), account_type: 'requester' },
           },
         });
