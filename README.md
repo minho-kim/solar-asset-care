@@ -116,6 +116,7 @@ npm run dev
 | [SECURITY_AND_TENANCY.md](docs/SECURITY_AND_TENANCY.md) | 조직 격리, 권한, 파일·비밀정보, 감사와 백업 원칙 |
 | [MVP_PLAN.md](docs/MVP_PLAN.md) | 계약 후 후보 단계, 산출물과 검수 게이트 |
 | [TEST_CHECKLIST.md](docs/TEST_CHECKLIST.md) | 향후 구현 시 수행할 검증 계획 |
+| [PRE_RELEASE_SECURITY_REVIEW.md](docs/PRE_RELEASE_SECURITY_REVIEW.md) | 공개 전 로그인 방식, 보안 위험, 오류 복구와 배포 차단 항목 |
 | [FEASIBILITY_REVIEW.md](reports/FEASIBILITY_REVIEW.md) | 구현 가능성, 핵심 불확실성과 계약 전 결론 |
 | [Supabase 구성](supabase/README.md) | 원격 프로젝트, 마이그레이션, 비공개 파일 경로와 운영 전 확인사항 |
 | [CHANGELOG.md](CHANGELOG.md) | 문서 변경 이력 |
