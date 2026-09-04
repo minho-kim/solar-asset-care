@@ -15,7 +15,6 @@ import {
   Building2,
   CheckCircle2,
   ClipboardCheck,
-  Database as DatabaseIcon,
   Download,
   FileCheck2,
   FileText,
@@ -283,8 +282,7 @@ export function LiveApp() {
     return () => data.subscription.unsubscribe();
   }, [supabase]);
 
-  if (loading)
-    return <FullScreenLoading label="안전한 작업공간을 여는 중입니다." />;
+  if (loading) return <FullScreenLoading label="불러오는 중입니다." />;
   if (!supabase) return <ConfigurationMissing />;
   if (recoveringPassword && session) {
     return (
@@ -336,17 +334,10 @@ function ConfigurationMissing() {
     <main className="min-h-screen bg-[#eef3f5] px-6 py-16">
       <div className="mx-auto max-w-xl rounded-3xl border bg-white p-8 shadow-sm">
         <Brand />
-        <DatabaseIcon className="mt-12 size-10 text-amber-500" />
-        <h1 className="mt-5 text-2xl font-bold">
-          Supabase 연결 설정이 필요합니다
-        </h1>
+        <AlertTriangle className="mt-12 size-10 text-amber-500" />
+        <h1 className="mt-5 text-2xl font-bold">서비스에 연결할 수 없습니다</h1>
         <p className="mt-3 text-sm leading-6 text-slate-600">
-          배포 환경에 프로젝트 URL과 publishable key를 등록하면 로그인과 실제
-          데이터 저장이 시작됩니다. 비밀키는 브라우저에 넣지 않습니다.
-        </p>
-        <p className="mt-7 rounded-xl bg-amber-50 p-4 text-sm leading-6 text-amber-900">
-          운영 담당자가 배포 환경의 연결값을 확인해야 합니다. 연결 전에는 계정과
-          현장 자료를 입력하지 마세요.
+          잠시 후 다시 시도해 주세요. 문제가 계속되면 관리자에게 문의해 주세요.
         </p>
       </div>
     </main>
@@ -413,65 +404,27 @@ function AuthPanel({ supabase }: { supabase: SupabaseClient<Database> }) {
   }
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#dff5f1_0,transparent_35%),linear-gradient(135deg,#f7fafb,#e8eff2)] px-3 py-4 sm:px-5 sm:py-8 md:py-14">
-      <div className="mx-auto grid max-w-6xl overflow-hidden rounded-[2rem] border border-white/80 bg-white shadow-[0_30px_90px_rgba(15,49,55,0.15)] lg:grid-cols-[1.12fr_0.88fr]">
-        <section className="order-2 bg-[#0f3c40] p-6 text-white sm:p-8 md:p-12 lg:order-1 lg:p-14">
-          <BrandOnDark />
-          <div className="mt-10 max-w-xl sm:mt-16">
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-semibold text-teal-100">
-              <ShieldCheck className="size-3.5" /> 실제 운영 데이터는 로그인
-              후에만 표시
-            </div>
-            <h1 className="mt-6 text-3xl font-bold leading-[1.16] tracking-tight sm:text-4xl md:text-5xl">
-              점검 접수부터 보고서와 유지보수까지 한곳에서
-            </h1>
-            <p className="mt-5 max-w-lg text-sm leading-7 text-slate-200 md:text-base">
-              발전소 등록, 점검 일정, 열화상 원본, 상대 분석 후보, 전문가 판정과
-              조치 이력을 조직별 권한으로 관리합니다.
-            </p>
-          </div>
-          <div className="mt-9 grid gap-3 sm:mt-14 sm:grid-cols-3">
-            {[
-              ['01', '원본 보존', '비공개 파일 저장'],
-              ['02', '업무 연결', '접수→판정→조치'],
-              ['03', '이관 대비', '표준 DB·객체 경로'],
-            ].map(([number, title, copy]) => (
-              <div
-                key={number}
-                className="rounded-2xl border border-white/10 bg-white/[0.06] p-4"
-              >
-                <span className="text-xs font-bold text-teal-300">
-                  {number}
-                </span>
-                <strong className="mt-3 block text-sm">{title}</strong>
-                <span className="mt-1 block text-xs text-slate-300">
-                  {copy}
-                </span>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="order-1 p-5 sm:p-7 md:p-12 lg:order-2 lg:p-14">
+    <main className="grid min-h-svh place-items-center bg-[#eef3f5] px-4 py-8">
+      <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white shadow-sm">
+        <section className="p-6 sm:p-9">
           <div className="mx-auto max-w-sm">
-            <div className="mb-8 lg:hidden">
+            <div className="mb-9">
               <Brand />
             </div>
-            <p className="text-sm font-semibold text-teal-700">서비스 접속</p>
-            <h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">
               {mode === 'signin'
                 ? '로그인'
                 : mode === 'signup'
-                  ? '계정 만들기'
+                  ? '회원가입'
                   : '비밀번호 재설정'}
-            </h2>
-            <p className="mt-3 text-sm leading-6 text-slate-500">
-              {mode === 'signin'
-                ? '의뢰인·전문가·관리자 계정으로 작업공간에 접속합니다.'
-                : mode === 'signup'
-                  ? '의뢰인 전용 가입입니다. 전문가와 관리자는 관리자가 초대합니다.'
-                  : '가입한 이메일로 안전한 비밀번호 변경 링크를 보냅니다.'}
-            </p>
+            </h1>
+            {mode !== 'signin' && (
+              <p className="mt-3 text-sm leading-6 text-slate-500">
+                {mode === 'signup'
+                  ? '전문가·관리자는 초대 메일로 가입해 주세요.'
+                  : '가입한 이메일로 비밀번호 변경 링크를 보내드립니다.'}
+              </p>
+            )}
             <div className="mt-7">
               <NoticeBar notice={notice} />
             </div>
@@ -495,7 +448,10 @@ function AuthPanel({ supabase }: { supabase: SupabaseClient<Database> }) {
                 />
               </Field>
               {mode !== 'forgot' && (
-                <Field label="비밀번호" hint="8자 이상">
+                <Field
+                  label="비밀번호"
+                  hint={mode === 'signup' ? '8자 이상' : undefined}
+                >
                   <Input
                     type="password"
                     value={password}
@@ -527,9 +483,7 @@ function AuthPanel({ supabase }: { supabase: SupabaseClient<Database> }) {
                   setNotice(null);
                 }}
               >
-                {mode === 'signup'
-                  ? '이미 계정이 있나요? 로그인'
-                  : '의뢰인이신가요? 회원가입'}
+                {mode === 'signup' ? '이미 계정이 있나요? 로그인' : '회원가입'}
               </button>
               <button
                 className="text-slate-500 underline-offset-4 hover:text-teal-700 hover:underline"
@@ -627,22 +581,6 @@ function UpdatePasswordPanel({
   );
 }
 
-function BrandOnDark() {
-  return (
-    <Link href="/" className="flex items-center gap-3 text-white">
-      <span className="grid size-10 place-items-center rounded-xl bg-teal-400 text-[#0f3c40]">
-        <SunMedium className="size-5" />
-      </span>
-      <span>
-        <strong className="block text-lg tracking-tight">SolarScope</strong>
-        <span className="block text-xs font-medium tracking-[0.12em] text-teal-200">
-          SOLAR ASSET CARE
-        </span>
-      </span>
-    </Link>
-  );
-}
-
 function Field({
   label,
   hint,
@@ -710,8 +648,7 @@ function WorkspaceGate({
     return () => window.clearTimeout(timer);
   }, [loadWorkspace]);
 
-  if (loading)
-    return <FullScreenLoading label="조직 권한을 확인하는 중입니다." />;
+  if (loading) return <FullScreenLoading label="불러오는 중입니다." />;
   if (!workspace) {
     return (
       <OrganizationOnboarding
@@ -1183,15 +1120,6 @@ function AdminConsole({
               );
             })}
           </nav>
-          <div className="mt-6 hidden rounded-2xl bg-slate-50 p-4 md:block">
-            <ShieldCheck className="size-5 text-teal-600" />
-            <strong className="mt-3 block text-xs">
-              조직별 접근 제어 적용
-            </strong>
-            <p className="mt-1 text-xs leading-5 text-slate-500">
-              다른 조직의 데이터와 원본 파일은 조회할 수 없습니다.
-            </p>
-          </div>
         </aside>
 
         <main className="min-w-0 p-3 sm:p-4 md:p-6 lg:p-8">
@@ -1290,7 +1218,7 @@ function PageHeading({
 }: {
   eyebrow: string;
   title: string;
-  copy: string;
+  copy?: string;
   action?: React.ReactNode;
 }) {
   return (
@@ -1302,9 +1230,11 @@ function PageHeading({
         <h1 className="mt-2 text-2xl font-bold tracking-tight md:text-3xl">
           {title}
         </h1>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-          {copy}
-        </p>
+        {copy && (
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
+            {copy}
+          </p>
+        )}
       </div>
       {action}
     </div>
@@ -1351,11 +1281,7 @@ function DashboardView(props: SharedProps & { setView: (view: View) => void }) {
 
   return (
     <>
-      <PageHeading
-        eyebrow="LIVE WORKSPACE"
-        title="실제 운영 현황"
-        copy="현재 조직에 저장된 발전소·점검·판정·보고서·유지보수 진행 상황입니다."
-      />
+      <PageHeading eyebrow="DASHBOARD" title="운영 현황" />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           icon={Building2}
@@ -1961,7 +1887,7 @@ function InspectionsView(
         copy={
           props.requesterMode
             ? '내 발전소의 열화상 점검을 요청하고 진행 상태와 발행 결과를 확인합니다.'
-            : '현장 일정과 마감 시각은 UTC로 안전하게 저장하고 화면에서는 Asia/Seoul 기준으로 표시합니다.'
+            : '모든 일정은 한국 시간 기준입니다.'
         }
       />
       <div className="grid gap-5 xl:grid-cols-[380px_1fr]">
@@ -2144,7 +2070,7 @@ function InspectionsView(
             <EmptyState
               icon={ClipboardCheck}
               title="접수된 점검이 없습니다"
-              copy="왼쪽 양식에서 첫 점검을 만들어 보세요."
+              copy="새 점검 접수 양식에서 점검을 등록하세요."
             />
           )}
         </section>
@@ -2400,7 +2326,7 @@ function FilesView(props: SharedProps & { canWrite: boolean }) {
       }
       props.setNotice({
         tone: 'success',
-        text: `원본 파일과 SHA-256 무결성 값을 저장했습니다.${analysisText}`,
+        text: `원본 파일을 저장했습니다.${analysisText}`,
       });
       setSelectedFile(null);
       await props.refresh();
@@ -2429,11 +2355,7 @@ function FilesView(props: SharedProps & { canWrite: boolean }) {
 
   return (
     <>
-      <PageHeading
-        eyebrow="PRIVATE ORIGINALS"
-        title="열화상·가시광 원본 업로드"
-        copy="파일은 공개 URL이 아닌 비공개 버킷에 저장됩니다. SHA-256 무결성 값으로 원본 변경 여부를 확인할 수 있습니다."
-      />
+      <PageHeading eyebrow="FILES" title="열화상·가시광 원본 업로드" />
       <div className="grid gap-5 xl:grid-cols-[390px_1fr]">
         <form
           onSubmit={upload}
@@ -2527,8 +2449,7 @@ function FilesView(props: SharedProps & { canWrite: boolean }) {
                   <p className="mt-2 truncate text-xs text-slate-500">
                     {inspectionLabel(file.inspection_id)}
                   </p>
-                  <p className="mt-1 break-all font-mono text-xs text-slate-400">
-                    SHA-256 {file.sha256?.slice(0, 18)}… ·{' '}
+                  <p className="mt-1 text-xs text-slate-400">
                     {file.bytes
                       ? `${Math.round(file.bytes / 1024).toLocaleString()} KB`
                       : '크기 미상'}
@@ -3436,7 +3357,7 @@ function PartnerQuotesView(
       <PageHeading
         eyebrow="PARTNER & QUOTE"
         title="업체·견적 관리"
-        copy="업체 DB와 견적 요청·회신·의뢰인 선택·수수료를 한 흐름으로 연결할 수 있는 운영 틀입니다. 업체 포털은 별도 연결 구조로 분리했습니다."
+        copy="업체를 등록하고 견적 요청과 회신을 관리합니다."
       />
       <div className="grid gap-5 xl:grid-cols-[380px_1fr]">
         <div className="space-y-5">

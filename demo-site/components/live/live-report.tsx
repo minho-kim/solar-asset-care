@@ -49,7 +49,7 @@ export function LiveReport({ reportId }: { reportId: string }) {
   useEffect(() => {
     async function load() {
       if (!supabase) {
-        setError('Supabase 연결 설정이 없습니다.');
+        setError('보고서를 불러올 수 없습니다. 관리자에게 문의해 주세요.');
         setLoading(false);
         return;
       }
