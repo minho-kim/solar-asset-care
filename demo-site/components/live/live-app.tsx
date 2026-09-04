@@ -2221,8 +2221,111 @@ function FilesView(props: SharedProps & { canWrite: boolean }) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [runAnalysis, setRunAnalysis] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [analyzingFileId, setAnalyzingFileId] = useState<string | null>(null);
 
   const effectiveInspectionId = inspectionId || props.inspections[0]?.id || '';
+
+  const hasSuccessfulAnalysis = (fileId: string) =>
+    props.analysisRuns.some((run) => {
+      const manifest = jsonRecord(run.input_manifest);
+      return (
+        run.status === 'succeeded' &&
+        jsonText(manifest.inspection_file_id) === fileId
+      );
+    });
+
+  async function analyzeFile(file: File, fileRow: InspectionFile) {
+    if (!['image/jpeg', 'image/png'].includes(file.type)) {
+      throw new Error(
+        '상대 분석은 JPG 또는 PNG 원본에서만 실행할 수 있습니다.',
+      );
+    }
+    if (hasSuccessfulAnalysis(fileRow.id)) {
+      throw new Error('이 원본의 상대 분석이 이미 완료됐습니다.');
+    }
+
+    const pixels = await imageValues(file);
+    const { data: run, error: createRunError } = await props.supabase.rpc(
+      'start_relative_analysis',
+      {
+        p_inspection_file_id: fileRow.id,
+        p_normalized_pixels: pixels.width * pixels.height,
+      },
+    );
+    if (createRunError) throw createRunError;
+
+    try {
+      const response = await fetch('/api/thermal/analyze', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${props.session.access_token}`,
+        },
+        body: JSON.stringify({ ...pixels, sensitivity: 72 }),
+      });
+      const analysis = (await response.json()) as AnalysisResult & {
+        error?: string;
+      };
+      if (!response.ok)
+        throw new Error(analysis.error || '상대 분석에 실패했습니다.');
+
+      const { error: finishRunError } = await props.supabase.rpc(
+        'complete_relative_analysis',
+        {
+          p_analysis_run_id: run.id,
+          p_result_summary: {
+            ...analysis.summary,
+            disclaimer: analysis.disclaimer,
+            analyzed_at: analysis.analyzedAt,
+          } as Json,
+          p_regions: analysis.regions.map((region) => ({
+            kind: region.kind,
+            x: region.x,
+            y: region.y,
+            width: region.width,
+            height: region.height,
+            area_percent: region.areaPercent,
+            score: region.score,
+          })) as Json,
+        },
+      );
+      if (finishRunError) throw finishRunError;
+
+      return analysis.regions.length;
+    } catch (error) {
+      await props.supabase.rpc('fail_relative_analysis', {
+        p_analysis_run_id: run.id,
+        p_message: errorMessage(error).slice(0, 300),
+      });
+      throw error;
+    }
+  }
+
+  async function retryAnalysis(fileRow: InspectionFile) {
+    setAnalyzingFileId(fileRow.id);
+    props.setNotice({ tone: 'info', text: '저장된 원본을 다시 분석합니다.' });
+    try {
+      const { data, error } = await props.supabase.storage
+        .from(fileRow.storage_bucket)
+        .download(fileRow.storage_path);
+      if (error) throw error;
+      const file = new File([data], fileRow.original_name, {
+        type: fileRow.mime_type ?? data.type,
+      });
+      await verifiedImageType(file);
+      const candidateCount = await analyzeFile(file, fileRow);
+      props.setNotice({
+        tone: 'success',
+        text: `상대 분석 후보 ${candidateCount}건을 만들었습니다.`,
+      });
+      await props.refresh();
+    } catch (error) {
+      props.setNotice({ tone: 'error', text: errorMessage(error) });
+      await props.refresh();
+    } finally {
+      setAnalyzingFileId(null);
+    }
+  }
 
   async function upload(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -2282,79 +2385,12 @@ function FilesView(props: SharedProps & { canWrite: boolean }) {
           tone: 'info',
           text: '원본 저장 완료. 색상 분포 기반 상대 분석을 실행하는 중입니다.',
         });
-        const pixels = await imageValues(selectedFile);
-        const response = await fetch('/api/thermal/analyze', {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            authorization: `Bearer ${props.session.access_token}`,
-          },
-          body: JSON.stringify({ ...pixels, sensitivity: 72 }),
-        });
-        const analysis = (await response.json()) as AnalysisResult & {
-          error?: string;
-        };
-        if (!response.ok)
-          throw new Error(analysis.error || '상대 분석에 실패했습니다.');
-        const { data: run, error: runError } = await props.supabase
-          .from('analysis_runs')
-          .insert({
-            organization_id: props.organizationId,
-            inspection_id: effectiveInspectionId,
-            algorithm_key: 'rgb-luminance-relative',
-            algorithm_version: '1.0.0',
-            status: 'succeeded',
-            input_manifest: {
-              inspection_file_id: fileRow.id,
-              normalized_pixels: pixels.width * pixels.height,
-            },
-            result_summary: {
-              ...analysis.summary,
-              disclaimer: analysis.disclaimer,
-              analyzed_at: analysis.analyzedAt,
-            },
-            requested_by: props.session.user.id,
-            started_at: analysis.analyzedAt,
-            finished_at: analysis.analyzedAt,
-          })
-          .select('id')
-          .single();
-        if (runError) throw runError;
-        if (analysis.regions.length) {
-          const { error: findingError } = await props.supabase
-            .from('findings')
-            .insert(
-              analysis.regions.map((region) => ({
-                organization_id: props.organizationId,
-                inspection_id: effectiveInspectionId,
-                analysis_run_id: run.id,
-                source: 'rule_candidate',
-                kind: region.kind === 'hot' ? 'hotspot' : 'coldspot',
-                severity:
-                  region.score >= 90
-                    ? 'major'
-                    : region.score >= 75
-                      ? 'review'
-                      : 'info',
-                relative_heat_score: region.score,
-                region: {
-                  x: region.x,
-                  y: region.y,
-                  width: region.width,
-                  height: region.height,
-                  area_percent: region.areaPercent,
-                } as Json,
-                disposition: 'pending',
-              })),
-            );
-          if (findingError) throw findingError;
+        try {
+          const candidateCount = await analyzeFile(selectedFile, fileRow);
+          analysisText = ` 상대 분석 후보 ${candidateCount}건을 만들었습니다.`;
+        } catch (error) {
+          analysisText = ` 원본은 안전하게 저장됐지만 상대 분석은 완료하지 못했습니다: ${errorMessage(error)} 아래 목록에서 다시 실행할 수 있습니다.`;
         }
-        const { error: inspectionError } = await props.supabase
-          .from('inspections')
-          .update({ status: 'expert_review' })
-          .eq('id', effectiveInspectionId);
-        if (inspectionError) throw inspectionError;
-        analysisText = ` 상대 분석 후보 ${analysis.regions.length}건을 만들었습니다.`;
       }
       props.setNotice({
         tone: 'success',
@@ -2492,14 +2528,37 @@ function FilesView(props: SharedProps & { canWrite: boolean }) {
                       : '크기 미상'}
                   </p>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void download(file)}
-                >
-                  <Download />
-                  60초 다운로드
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  {file.kind === 'thermal_original' &&
+                    ['image/jpeg', 'image/png'].includes(
+                      file.mime_type ?? '',
+                    ) &&
+                    !hasSuccessfulAnalysis(file.id) && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={
+                          !props.canWrite || analyzingFileId === file.id
+                        }
+                        onClick={() => void retryAnalysis(file)}
+                      >
+                        {analyzingFileId === file.id ? (
+                          <Loader2 className="animate-spin" />
+                        ) : (
+                          <ThermometerSun />
+                        )}
+                        상대 분석
+                      </Button>
+                    )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void download(file)}
+                  >
+                    <Download />
+                    60초 다운로드
+                  </Button>
+                </div>
               </div>
             ))}
             {props.files.length === 0 && (
@@ -2629,34 +2688,24 @@ function ReportsView(
   const [inspectionId, setInspectionId] = useState('');
   const [title, setTitle] = useState('태양광 발전설비 열화상 점검 보고서');
   const [busy, setBusy] = useState(false);
+  const [transitioningId, setTransitioningId] = useState<string | null>(null);
+  const [reasonByReport, setReasonByReport] = useState<Record<string, string>>(
+    {},
+  );
   const effectiveInspectionId = inspectionId || props.inspections[0]?.id || '';
-  const availableReportStatuses = props.canApprove
-    ? reportStatuses
-    : reportStatuses.filter(([key]) => ['draft', 'review'].includes(key));
 
   async function create(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
     try {
-      const version =
-        Math.max(
-          0,
-          ...props.reports
-            .filter((report) => report.inspection_id === effectiveInspectionId)
-            .map((report) => report.version),
-        ) + 1;
-      const { error } = await props.supabase.from('reports').insert({
-        organization_id: props.organizationId,
-        inspection_id: effectiveInspectionId,
-        title: title.trim(),
-        version,
-        status: 'draft',
-        created_by: props.session.user.id,
+      const { data, error } = await props.supabase.rpc('create_report_draft', {
+        p_inspection_id: effectiveInspectionId,
+        p_title: title.trim(),
       });
       if (error) throw error;
       props.setNotice({
         tone: 'success',
-        text: `보고서 ${version}차 초안을 만들었습니다.`,
+        text: `보고서 ${data.version}차 초안을 만들었습니다.`,
       });
       await props.refresh();
     } catch (error) {
@@ -2666,30 +2715,29 @@ function ReportsView(
     }
   }
 
-  async function updateStatus(report: Report, status: string) {
-    const now = new Date().toISOString();
-    const updates: Database['public']['Tables']['reports']['Update'] = {
-      status,
-    };
-    if (status === 'approved') {
-      updates.approved_at = now;
-      updates.approved_by = props.session.user.id;
-    }
-    if (status === 'published') updates.published_at = now;
-    if (status === 'withdrawn') updates.withdrawn_at = now;
-    const { error } = await props.supabase
-      .from('reports')
-      .update(updates)
-      .eq('id', report.id);
-    if (error) props.setNotice({ tone: 'error', text: errorMessage(error) });
-    else {
-      if (status === 'published')
-        await props.supabase
-          .from('inspections')
-          .update({ status: 'published' })
-          .eq('id', report.inspection_id);
-      props.setNotice({ tone: 'success', text: '보고서 상태를 변경했습니다.' });
+  async function transitionStatus(report: Report, status: string) {
+    setTransitioningId(report.id);
+    props.setNotice(null);
+    try {
+      const { error } = await props.supabase.rpc('transition_report_status', {
+        p_report_id: report.id,
+        p_next_status: status,
+        p_reason:
+          status === 'draft' || status === 'withdrawn'
+            ? reasonByReport[report.id]?.trim() || null
+            : null,
+      });
+      if (error) throw error;
+      setReasonByReport((current) => ({ ...current, [report.id]: '' }));
+      props.setNotice({
+        tone: 'success',
+        text: `보고서를 ${statusLabel(status, reportStatuses)} 상태로 변경했습니다.`,
+      });
       await props.refresh();
+    } catch (error) {
+      props.setNotice({ tone: 'error', text: errorMessage(error) });
+    } finally {
+      setTransitioningId(null);
     }
   }
   const inspectionLabel = (id: string) =>
@@ -2777,34 +2825,122 @@ function ReportsView(
                       인쇄 보기
                     </Button>
                   </Link>
-                  {props.canCreate ? (
-                    <select
-                      className="h-8 rounded-lg border bg-white px-2 text-xs font-semibold"
-                      value={report.status}
-                      onChange={(e) =>
-                        void updateStatus(report, e.target.value)
-                      }
-                    >
-                      {!availableReportStatuses.some(
-                        ([key]) => key === report.status,
-                      ) && (
-                        <option value={report.status}>
-                          {statusLabel(report.status, reportStatuses)}
-                        </option>
-                      )}
-                      {availableReportStatuses.map(([key, label]) => (
-                        <option key={key} value={key}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <StatusPill>
-                      {statusLabel(report.status, reportStatuses)}
-                    </StatusPill>
-                  )}
+                  <StatusPill>
+                    {statusLabel(report.status, reportStatuses)}
+                  </StatusPill>
                 </div>
               </div>
+              {props.canCreate && report.status === 'draft' && (
+                <div className="mt-4 flex justify-end border-t pt-4">
+                  <Button
+                    size="sm"
+                    disabled={transitioningId === report.id}
+                    onClick={() => void transitionStatus(report, 'review')}
+                  >
+                    {transitioningId === report.id ? (
+                      <Loader2 className="animate-spin" />
+                    ) : (
+                      <FileCheck2 />
+                    )}
+                    검토 요청
+                  </Button>
+                </div>
+              )}
+              {props.canApprove &&
+                ['review', 'approved', 'published'].includes(report.status) && (
+                  <div className="mt-4 grid gap-3 border-t pt-4 md:grid-cols-[1fr_auto] md:items-end">
+                    <Field
+                      label={
+                        report.status === 'published'
+                          ? '회수 사유'
+                          : '수정·승인 취소 사유'
+                      }
+                      hint={
+                        report.status === 'published'
+                          ? '필수'
+                          : report.status === 'review'
+                            ? '수정 요청 시 필수'
+                            : '승인 취소 시 필수'
+                      }
+                    >
+                      <Input
+                        value={reasonByReport[report.id] ?? ''}
+                        onChange={(event) =>
+                          setReasonByReport((current) => ({
+                            ...current,
+                            [report.id]: event.target.value,
+                          }))
+                        }
+                        placeholder="변경 사유를 기록하세요"
+                      />
+                    </Field>
+                    <div className="flex flex-wrap gap-2 md:justify-end">
+                      {report.status === 'review' && (
+                        <>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={transitioningId === report.id}
+                            onClick={() =>
+                              void transitionStatus(report, 'draft')
+                            }
+                          >
+                            수정 요청
+                          </Button>
+                          <Button
+                            size="sm"
+                            disabled={transitioningId === report.id}
+                            onClick={() =>
+                              void transitionStatus(report, 'approved')
+                            }
+                          >
+                            보고서 승인
+                          </Button>
+                        </>
+                      )}
+                      {report.status === 'approved' && (
+                        <>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={transitioningId === report.id}
+                            onClick={() =>
+                              void transitionStatus(report, 'draft')
+                            }
+                          >
+                            승인 취소
+                          </Button>
+                          <Button
+                            size="sm"
+                            disabled={transitioningId === report.id}
+                            onClick={() =>
+                              void transitionStatus(report, 'published')
+                            }
+                          >
+                            최종 발행
+                          </Button>
+                        </>
+                      )}
+                      {report.status === 'published' && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={transitioningId === report.id}
+                          onClick={() =>
+                            void transitionStatus(report, 'withdrawn')
+                          }
+                        >
+                          발행본 회수
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              {report.change_reason && (
+                <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-900">
+                  최근 변경 사유: {report.change_reason}
+                </p>
+              )}
             </article>
           ))}
           {props.reports.length === 0 && (

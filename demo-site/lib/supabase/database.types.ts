@@ -1090,6 +1090,20 @@ export type Database = {
           organization_name: string;
         }[];
       };
+      complete_relative_analysis: {
+        Args: {
+          p_analysis_run_id: string;
+          p_regions: Json;
+          p_result_summary: Json;
+        };
+        Returns: Database['public']['Tables']['analysis_runs']['Row'];
+        SetofOptions: {
+          from: '*';
+          to: 'analysis_runs';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       create_quote_request_with_partners: {
         Args: {
           p_commission_rate?: number;
@@ -1106,6 +1120,16 @@ export type Database = {
         SetofOptions: {
           from: '*';
           to: 'quote_requests';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      create_report_draft: {
+        Args: { p_inspection_id: string; p_title: string };
+        Returns: Database['public']['Tables']['reports']['Row'];
+        SetofOptions: {
+          from: '*';
+          to: 'reports';
           isOneToOne: true;
           isSetofReturn: false;
         };
@@ -1152,6 +1176,16 @@ export type Database = {
         SetofOptions: {
           from: '*';
           to: 'plants';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      fail_relative_analysis: {
+        Args: { p_analysis_run_id: string; p_message: string };
+        Returns: Database['public']['Tables']['analysis_runs']['Row'];
+        SetofOptions: {
+          from: '*';
+          to: 'analysis_runs';
           isOneToOne: true;
           isSetofReturn: false;
         };
@@ -1206,6 +1240,33 @@ export type Database = {
         SetofOptions: {
           from: '*';
           to: 'inspections';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      start_relative_analysis: {
+        Args: {
+          p_inspection_file_id: string;
+          p_normalized_pixels: number;
+        };
+        Returns: Database['public']['Tables']['analysis_runs']['Row'];
+        SetofOptions: {
+          from: '*';
+          to: 'analysis_runs';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      transition_report_status: {
+        Args: {
+          p_next_status: string;
+          p_reason?: string | null;
+          p_report_id: string;
+        };
+        Returns: Database['public']['Tables']['reports']['Row'];
+        SetofOptions: {
+          from: '*';
+          to: 'reports';
           isOneToOne: true;
           isSetofReturn: false;
         };
