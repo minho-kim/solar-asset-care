@@ -144,10 +144,22 @@ body {
   border-radius: 0.75rem;
 }
 
-.metric-cyan { color: #087c76; background: #e4f5f3; }
-.metric-orange { color: #dc6333; background: #fff0e8; }
-.metric-violet { color: #7357b5; background: #f0ecfb; }
-.metric-emerald { color: #18815b; background: #e9f6ef; }
+.metric-cyan {
+  color: #087c76;
+  background: #e4f5f3;
+}
+.metric-orange {
+  color: #dc6333;
+  background: #fff0e8;
+}
+.metric-violet {
+  color: #7357b5;
+  background: #f0ecfb;
+}
+.metric-emerald {
+  color: #18815b;
+  background: #e9f6ef;
+}
 
 .status {
   height: 1.25rem;
@@ -157,9 +169,21 @@ body {
   font-weight: 700;
 }
 
-.status-amber { border-color: #f0d6a4; background: #fff8e8; color: #a55e08; }
-.status-blue { border-color: #cbdff5; background: #eff7ff; color: #2d6fa8; }
-.status-green { border-color: #c6e4d4; background: #eef9f3; color: #19734e; }
+.status-amber {
+  border-color: #f0d6a4;
+  background: #fff8e8;
+  color: #a55e08;
+}
+.status-blue {
+  border-color: #cbdff5;
+  background: #eff7ff;
+  color: #2d6fa8;
+}
+.status-green {
+  border-color: #c6e4d4;
+  background: #eef9f3;
+  color: #19734e;
+}
 
 @page {
   size: A4;

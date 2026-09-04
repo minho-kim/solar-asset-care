@@ -15,11 +15,11 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: 'SolarScope | 태양광 자산진단 운영센터',
   description:
-    '검사 접수부터 열화상 검토, 전문가 판정, 보고서와 유지보수까지 연결하는 운영 데모',
+    '검사 접수부터 열화상 원본, 전문가 판정, 보고서와 유지보수까지 연결하는 태양광 자산진단 운영센터',
   openGraph: {
     title: 'SolarScope | 태양광 자산진단 운영센터',
     description:
-      '열화상 검사부터 전문가 판정, 보고서와 유지보수를 연결하는 전체 서비스 데모',
+      '열화상 검사부터 전문가 판정, 보고서와 유지보수를 연결하는 실제 운영 플랫폼',
     images: [
       {
         url: '/solarscope-social-preview.png',

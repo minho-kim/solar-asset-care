@@ -30,6 +30,7 @@
     "dist/**",
     "coverage/**",
     "components/ui/**",
+    "lib/supabase/database.types.ts",
     "hooks/**",
     "next-env.d.ts"
   ],
