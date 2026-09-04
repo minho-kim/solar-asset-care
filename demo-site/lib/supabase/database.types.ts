@@ -476,6 +476,7 @@ export type Database = {
           created_at: string;
           default_timezone: string;
           id: string;
+          is_primary_operator: boolean;
           name: string;
           slug: string;
           updated_at: string;
@@ -484,6 +485,7 @@ export type Database = {
           created_at?: string;
           default_timezone?: string;
           id?: string;
+          is_primary_operator?: boolean;
           name: string;
           slug: string;
           updated_at?: string;
@@ -492,11 +494,41 @@ export type Database = {
           created_at?: string;
           default_timezone?: string;
           id?: string;
+          is_primary_operator?: boolean;
           name?: string;
           slug?: string;
           updated_at?: string;
         };
         Relationships: [];
+      };
+      plant_requesters: {
+        Row: {
+          created_at: string;
+          created_by: string | null;
+          plant_id: string;
+          requester_user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          created_by?: string | null;
+          plant_id: string;
+          requester_user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          created_by?: string | null;
+          plant_id?: string;
+          requester_user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'plant_requesters_plant_id_fkey';
+            columns: ['plant_id'];
+            isOneToOne: false;
+            referencedRelation: 'plants';
+            referencedColumns: ['id'];
+          },
+        ];
       };
       plants: {
         Row: {
@@ -660,6 +692,44 @@ export type Database = {
           user_id: string;
         }[];
       };
+      admin_update_member: {
+        Args: {
+          p_organization_id: string;
+          p_role: string;
+          p_status: string;
+          p_user_id: string;
+        };
+        Returns: {
+          created_at: string;
+          joined_at: string | null;
+          organization_id: string;
+          role: string;
+          status: string;
+          updated_at: string;
+          user_id: string;
+        };
+        SetofOptions: {
+          from: '*';
+          to: 'organization_members';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      assign_requester_to_plant: {
+        Args: { p_plant_id: string; p_requester_user_id: string };
+        Returns: {
+          created_at: string;
+          created_by: string | null;
+          plant_id: string;
+          requester_user_id: string;
+        };
+        SetofOptions: {
+          from: '*';
+          to: 'plant_requesters';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       bootstrap_organization: {
         Args: { p_name: string; p_setup_code: string; p_slug: string };
         Returns: {
@@ -667,6 +737,68 @@ export type Database = {
           organization_id: string;
           organization_name: string;
         }[];
+      };
+      create_requester_plant: {
+        Args: {
+          p_address: string;
+          p_capacity_kw: number;
+          p_commissioned_on: string;
+          p_name: string;
+        };
+        Returns: {
+          address: string | null;
+          capacity_kw: number | null;
+          code: string | null;
+          commissioned_on: string | null;
+          created_at: string;
+          id: string;
+          metadata: Json;
+          name: string;
+          organization_id: string;
+          timezone: string;
+          updated_at: string;
+        };
+        SetofOptions: {
+          from: '*';
+          to: 'plants';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      register_requester: {
+        Args: never;
+        Returns: {
+          member_role: string;
+          organization_id: string;
+          organization_name: string;
+        }[];
+      };
+      request_inspection: {
+        Args: { p_notes: string; p_plant_id: string; p_purpose: string };
+        Returns: {
+          assigned_expert_user_id: string | null;
+          assigned_field_user_id: string | null;
+          capture_timezone: string;
+          created_at: string;
+          created_by: string | null;
+          due_at: string | null;
+          id: string;
+          inspection_code: string;
+          notes: string | null;
+          organization_id: string;
+          plant_id: string;
+          purpose: string | null;
+          requested_on: string;
+          scheduled_at: string | null;
+          status: string;
+          updated_at: string;
+        };
+        SetofOptions: {
+          from: '*';
+          to: 'inspections';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
       };
     };
     Enums: {

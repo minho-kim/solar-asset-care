@@ -122,13 +122,9 @@ const maintenanceStatuses = [
 ] as const;
 
 const roleLabels: Record<string, string> = {
-  owner: '소유자',
-  operator: '운영 관리자',
-  field_technician: '현장 담당자',
-  expert: '판독 전문가',
-  approver: '승인 담당자',
-  client: '고객',
-  maintainer: '유지보수 담당자',
+  owner: '관리자',
+  expert: '전문가',
+  client: '의뢰인',
 };
 
 const navItems: Array<{
@@ -145,6 +141,20 @@ const navItems: Array<{
   { id: 'maintenance', label: '유지보수', icon: Wrench },
   { id: 'members', label: '관리자·사용자', icon: Users },
 ];
+
+const roleViews: Record<string, View[]> = {
+  owner: navItems.map((item) => item.id),
+  expert: [
+    'dashboard',
+    'plants',
+    'inspections',
+    'files',
+    'findings',
+    'reports',
+    'maintenance',
+  ],
+  client: ['dashboard', 'plants', 'inspections', 'reports', 'maintenance'],
+};
 
 function errorMessage(error: unknown) {
   if (error instanceof Error) return error.message;
@@ -287,7 +297,9 @@ function AuthPanel({ supabase }: { supabase: SupabaseClient<Database> }) {
         const { data, error } = await supabase.auth.signUp({
           email: email.trim(),
           password,
-          options: { data: { name: name.trim() } },
+          options: {
+            data: { name: name.trim(), account_type: 'requester' },
+          },
         });
         if (error) throw error;
         if (!data.session) {
@@ -353,14 +365,14 @@ function AuthPanel({ supabase }: { supabase: SupabaseClient<Database> }) {
 
         <section className="p-7 md:p-12 lg:p-14">
           <div className="mx-auto max-w-sm">
-            <p className="text-sm font-semibold text-teal-700">운영센터 접속</p>
+            <p className="text-sm font-semibold text-teal-700">서비스 접속</p>
             <h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">
               {mode === 'signin' ? '로그인' : '계정 만들기'}
             </h2>
             <p className="mt-3 text-sm leading-6 text-slate-500">
               {mode === 'signin'
-                ? '등록된 계정으로 실제 작업공간에 접속합니다.'
-                : '가입 후 이메일 인증이 필요합니다. 권한은 조직 관리자가 연결합니다.'}
+                ? '의뢰인·전문가·관리자 계정으로 작업공간에 접속합니다.'
+                : '의뢰인 전용 가입입니다. 전문가와 관리자는 관리자가 초대합니다.'}
             </p>
             <div className="mt-7">
               <NoticeBar notice={notice} />
@@ -411,7 +423,7 @@ function AuthPanel({ supabase }: { supabase: SupabaseClient<Database> }) {
               }}
             >
               {mode === 'signin'
-                ? '처음이신가요? 계정 만들기'
+                ? '의뢰인이신가요? 회원가입'
                 : '이미 계정이 있나요? 로그인'}
             </button>
             <div className="mt-9 border-t pt-5 text-center">
@@ -546,7 +558,26 @@ function OrganizationOnboarding({
   const [slug, setSlug] = useState('solar-ieum');
   const [setupCode, setSetupCode] = useState('');
   const [busy, setBusy] = useState(false);
+  const [requesterBusy, setRequesterBusy] = useState(false);
   const [notice, setNotice] = useState<Notice>(initialNotice);
+
+  async function registerRequester() {
+    setRequesterBusy(true);
+    setNotice(null);
+    try {
+      const { error } = await supabase.rpc('register_requester');
+      if (error) throw error;
+      setNotice({
+        tone: 'success',
+        text: '의뢰인 계정을 만들었습니다. 이제 본인 발전소를 등록할 수 있습니다.',
+      });
+      await onReady();
+    } catch (error) {
+      setNotice({ tone: 'error', text: errorMessage(error) });
+    } finally {
+      setRequesterBusy(false);
+    }
+  }
 
   async function bootstrap(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -591,44 +622,71 @@ function OrganizationOnboarding({
               연결되지 않았습니다.
             </p>
             <p className="mt-4 rounded-xl bg-slate-50 p-4 text-xs leading-5 text-slate-600">
-              최초 관리자라면 전달받은 1회용 개설 코드를 입력하세요. 일반
-              사용자는 관리자에게 이 이메일 주소를 알려 권한을 연결받으면
-              됩니다.
+              직접 가입한 사용자는 의뢰인으로 시작합니다. 전문가와 추가 관리자는
+              기존 관리자가 보낸 초대 메일로만 계정을 만듭니다.
             </p>
           </div>
-          <form
-            onSubmit={bootstrap}
-            className="space-y-4 rounded-2xl border p-5"
-          >
+          <div className="space-y-4 rounded-2xl border p-5">
             <NoticeBar notice={notice} />
-            <Field label="조직명">
-              <Input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-              />
-            </Field>
-            <Field label="조직 식별자" hint="영문 소문자·숫자·하이픈">
-              <Input
-                value={slug}
-                onChange={(e) => setSlug(e.target.value.toLowerCase())}
-                pattern="[a-z0-9][a-z0-9-]{1,62}"
-                required
-              />
-            </Field>
-            <Field label="1회용 개설 코드">
-              <Input
-                value={setupCode}
-                onChange={(e) => setSetupCode(e.target.value.toUpperCase())}
-                autoComplete="off"
-                required
-              />
-            </Field>
-            <Button className="h-10 w-full" disabled={busy}>
-              {busy ? <Loader2 className="animate-spin" /> : <ShieldCheck />}
-              최초 관리자 작업공간 만들기
-            </Button>
-          </form>
+            <div className="rounded-2xl bg-teal-50 p-5">
+              <h2 className="font-bold text-teal-950">의뢰인으로 시작</h2>
+              <p className="mt-2 text-xs leading-5 text-teal-800">
+                본인 발전소만 보이는 의뢰인 계정을 연결합니다. 발전소 등록과
+                점검 요청은 다음 화면에서 진행합니다.
+              </p>
+              <Button
+                className="mt-4 h-10 w-full"
+                type="button"
+                disabled={requesterBusy}
+                onClick={() => void registerRequester()}
+              >
+                {requesterBusy ? (
+                  <Loader2 className="animate-spin" />
+                ) : (
+                  <ArrowRight />
+                )}
+                의뢰인 계정 연결
+              </Button>
+            </div>
+            <details className="rounded-2xl border bg-slate-50 p-4">
+              <summary className="cursor-pointer text-sm font-bold text-slate-700">
+                최초 관리자 작업공간 개설
+              </summary>
+              <form onSubmit={bootstrap} className="mt-4 space-y-4">
+                <Field label="조직명">
+                  <Input
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required
+                  />
+                </Field>
+                <Field label="조직 식별자" hint="영문 소문자·숫자·하이픈">
+                  <Input
+                    value={slug}
+                    onChange={(e) => setSlug(e.target.value.toLowerCase())}
+                    pattern="[a-z0-9][a-z0-9-]{1,62}"
+                    required
+                  />
+                </Field>
+                <Field label="1회용 개설 코드">
+                  <Input
+                    value={setupCode}
+                    onChange={(e) => setSetupCode(e.target.value.toUpperCase())}
+                    autoComplete="off"
+                    required
+                  />
+                </Field>
+                <Button className="h-10 w-full" disabled={busy}>
+                  {busy ? (
+                    <Loader2 className="animate-spin" />
+                  ) : (
+                    <ShieldCheck />
+                  )}
+                  최초 관리자 만들기
+                </Button>
+              </form>
+            </details>
+          </div>
         </div>
       </div>
     </main>
@@ -660,24 +718,20 @@ function AdminConsole({
 
   const organizationId = workspace.organization.id;
   const role = workspace.membership.role;
-  const canOperate = ['owner', 'operator'].includes(role);
-  const canInspect = [
-    'owner',
-    'operator',
-    'field_technician',
-    'expert',
-    'approver',
-  ].includes(role);
-  const canUpload = [
-    'owner',
-    'operator',
-    'field_technician',
-    'expert',
-  ].includes(role);
-  const canReview = ['owner', 'operator', 'expert'].includes(role);
-  const canApprove = ['owner', 'operator', 'expert', 'approver'].includes(role);
-  const canMaintain = ['owner', 'operator', 'maintainer'].includes(role);
   const isOwner = role === 'owner';
+  const isExpert = role === 'expert';
+  const isRequester = role === 'client';
+  const canOperate = isOwner;
+  const canCreateInspection = isOwner || isRequester;
+  const canUpdateInspection = isOwner || isExpert;
+  const canUpload = isOwner || isExpert;
+  const canReview = isOwner || isExpert;
+  const canCreateReport = isOwner || isExpert;
+  const canApprove = isOwner;
+  const canMaintain = isOwner;
+  const visibleNavItems = navItems.filter((item) =>
+    (roleViews[role] ?? ['dashboard']).includes(item.id),
+  );
 
   const refresh = useCallback(async () => {
     try {
@@ -853,7 +907,7 @@ function AdminConsole({
       <div className="mx-auto grid max-w-[1500px] md:grid-cols-[220px_1fr]">
         <aside className="border-b bg-white p-3 md:min-h-[calc(100vh-4rem)] md:border-r md:border-b-0 md:p-4">
           <nav className="flex gap-1 overflow-x-auto md:flex-col">
-            {navItems.map((item) => {
+            {visibleNavItems.map((item) => {
               const Icon = item.icon;
               return (
                 <button
@@ -897,10 +951,20 @@ function AdminConsole({
                 <DashboardView {...shared} setView={setView} />
               )}
               {view === 'plants' && (
-                <PlantsView {...shared} canWrite={canOperate} />
+                <PlantsView
+                  {...shared}
+                  canWrite={canOperate || isRequester}
+                  requesterMode={isRequester}
+                />
               )}
               {view === 'inspections' && (
-                <InspectionsView {...shared} canWrite={canInspect} />
+                <InspectionsView
+                  {...shared}
+                  canCreate={canCreateInspection}
+                  canUpdate={canUpdateInspection}
+                  requesterMode={isRequester}
+                  expertMode={isExpert}
+                />
               )}
               {view === 'files' && (
                 <FilesView {...shared} canWrite={canUpload} />
@@ -909,7 +973,12 @@ function AdminConsole({
                 <FindingsView {...shared} canWrite={canReview} />
               )}
               {view === 'reports' && (
-                <ReportsView {...shared} canWrite={canApprove} />
+                <ReportsView
+                  {...shared}
+                  canCreate={canCreateReport}
+                  canApprove={canApprove}
+                  requesterMode={isRequester}
+                />
               )}
               {view === 'maintenance' && (
                 <MaintenanceView {...shared} canWrite={canMaintain} />
@@ -1165,13 +1234,16 @@ function StatusPill({ children }: { children: React.ReactNode }) {
   );
 }
 
-function PlantsView(props: SharedProps & { canWrite: boolean }) {
+function PlantsView(
+  props: SharedProps & { canWrite: boolean; requesterMode: boolean },
+) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [address, setAddress] = useState('');
   const [capacity, setCapacity] = useState('');
   const [commissionedOn, setCommissionedOn] = useState('');
+  const [requesterId, setRequesterId] = useState('');
   const [busy, setBusy] = useState(false);
 
   function reset() {
@@ -1181,6 +1253,7 @@ function PlantsView(props: SharedProps & { canWrite: boolean }) {
     setAddress('');
     setCapacity('');
     setCommissionedOn('');
+    setRequesterId('');
   }
 
   function edit(plant: Plant) {
@@ -1197,27 +1270,63 @@ function PlantsView(props: SharedProps & { canWrite: boolean }) {
     setBusy(true);
     props.setNotice(null);
     try {
-      const payload = {
-        organization_id: props.organizationId,
-        name: name.trim(),
-        code: code.trim() || null,
-        address: address.trim() || null,
-        capacity_kw: capacity ? Number(capacity) : null,
-        commissioned_on: commissionedOn || null,
-        timezone: backendConfig.displayTimezone,
-      };
-      const result = editingId
-        ? await props.supabase
-            .from('plants')
-            .update(payload)
-            .eq('id', editingId)
-        : await props.supabase.from('plants').insert(payload);
+      const result = props.requesterMode
+        ? await props.supabase.rpc('create_requester_plant', {
+            p_name: name.trim(),
+            p_address: address.trim(),
+            p_capacity_kw: Number(capacity),
+            p_commissioned_on: commissionedOn,
+          })
+        : editingId
+          ? await props.supabase
+              .from('plants')
+              .update({
+                organization_id: props.organizationId,
+                name: name.trim(),
+                code: code.trim() || null,
+                address: address.trim() || null,
+                capacity_kw: capacity ? Number(capacity) : null,
+                commissioned_on: commissionedOn || null,
+                timezone: backendConfig.displayTimezone,
+              })
+              .eq('id', editingId)
+          : await props.supabase
+              .from('plants')
+              .insert({
+                organization_id: props.organizationId,
+                name: name.trim(),
+                code: code.trim() || null,
+                address: address.trim() || null,
+                capacity_kw: capacity ? Number(capacity) : null,
+                commissioned_on: commissionedOn || null,
+                timezone: backendConfig.displayTimezone,
+              })
+              .select('id')
+              .single();
       if (result.error) throw result.error;
+      if (
+        !props.requesterMode &&
+        !editingId &&
+        requesterId &&
+        result.data &&
+        'id' in result.data
+      ) {
+        const { error } = await props.supabase.rpc(
+          'assign_requester_to_plant',
+          {
+            p_plant_id: result.data.id,
+            p_requester_user_id: requesterId,
+          },
+        );
+        if (error) throw error;
+      }
       props.setNotice({
         tone: 'success',
         text: editingId
           ? '발전소 정보를 수정했습니다.'
-          : '발전소를 등록했습니다.',
+          : props.requesterMode
+            ? '내 발전소를 등록했습니다.'
+            : '발전소를 등록했습니다.',
       });
       reset();
       await props.refresh();
@@ -1232,8 +1341,12 @@ function PlantsView(props: SharedProps & { canWrite: boolean }) {
     <>
       <PageHeading
         eyebrow="ASSET REGISTRY"
-        title="발전소 관리"
-        copy="점검과 보고서가 연결될 기준 자산을 등록합니다. 용량은 kW, 시간은 발전소의 현지 시간대를 기준으로 표시합니다."
+        title={props.requesterMode ? '내 발전소' : '발전소 관리'}
+        copy={
+          props.requesterMode
+            ? '본인이 소유하거나 관리하는 발전소만 표시됩니다. 발전소를 등록하면 점검을 요청할 수 있습니다.'
+            : '점검과 보고서가 연결될 기준 자산을 등록합니다. 용량은 kW, 시간은 발전소의 현지 시간대를 기준으로 표시합니다.'
+        }
       />
       <div className="grid gap-5 xl:grid-cols-[380px_1fr]">
         <form
@@ -1242,7 +1355,11 @@ function PlantsView(props: SharedProps & { canWrite: boolean }) {
         >
           <div className="flex items-center justify-between">
             <h2 className="font-bold">
-              {editingId ? '발전소 수정' : '새 발전소'}
+              {editingId
+                ? '발전소 수정'
+                : props.requesterMode
+                  ? '내 발전소 등록'
+                  : '새 발전소'}
             </h2>
             {editingId && (
               <button
@@ -1264,14 +1381,16 @@ function PlantsView(props: SharedProps & { canWrite: boolean }) {
             />
           </Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="관리 코드">
-              <Input
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-                disabled={!props.canWrite}
-                placeholder="PLANT-001"
-              />
-            </Field>
+            {!props.requesterMode && (
+              <Field label="관리 코드">
+                <Input
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  disabled={!props.canWrite}
+                  placeholder="PLANT-001"
+                />
+              </Field>
+            )}
             <Field label="설비용량(kW)">
               <Input
                 type="number"
@@ -1280,6 +1399,7 @@ function PlantsView(props: SharedProps & { canWrite: boolean }) {
                 value={capacity}
                 onChange={(e) => setCapacity(e.target.value)}
                 disabled={!props.canWrite}
+                required={props.requesterMode}
               />
             </Field>
           </div>
@@ -1290,12 +1410,37 @@ function PlantsView(props: SharedProps & { canWrite: boolean }) {
               disabled={!props.canWrite}
             />
           </Field>
+          {!props.requesterMode && !editingId && (
+            <Field label="의뢰인 연결" hint="선택 사항">
+              <select
+                className="h-9 w-full rounded-lg border bg-white px-3 text-sm"
+                value={requesterId}
+                onChange={(e) => setRequesterId(e.target.value)}
+                disabled={!props.canWrite}
+              >
+                <option value="">나중에 연결</option>
+                {props.members
+                  .filter(
+                    (member) =>
+                      member.role === 'client' && member.status === 'active',
+                  )
+                  .map((member) => (
+                    <option key={member.user_id} value={member.user_id}>
+                      {props.profiles[member.user_id]?.display_name ||
+                        props.profiles[member.user_id]?.email ||
+                        member.user_id}
+                    </option>
+                  ))}
+              </select>
+            </Field>
+          )}
           <Field label="상업운전 시작일">
             <Input
               type="date"
               value={commissionedOn}
               onChange={(e) => setCommissionedOn(e.target.value)}
               disabled={!props.canWrite}
+              required={props.requesterMode}
             />
           </Field>
           <Button className="w-full" disabled={!props.canWrite || busy}>
@@ -1328,7 +1473,7 @@ function PlantsView(props: SharedProps & { canWrite: boolean }) {
                     · {plant.timezone}
                   </p>
                 </div>
-                {props.canWrite && (
+                {props.canWrite && !props.requesterMode && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -1360,7 +1505,14 @@ function ReadOnlyNote() {
   );
 }
 
-function InspectionsView(props: SharedProps & { canWrite: boolean }) {
+function InspectionsView(
+  props: SharedProps & {
+    canCreate: boolean;
+    canUpdate: boolean;
+    requesterMode: boolean;
+    expertMode: boolean;
+  },
+) {
   const [plantId, setPlantId] = useState('');
   const [code, setCode] = useState(
     `INS-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}`,
@@ -1369,6 +1521,7 @@ function InspectionsView(props: SharedProps & { canWrite: boolean }) {
   const [scheduledAt, setScheduledAt] = useState('');
   const [dueAt, setDueAt] = useState('');
   const [notes, setNotes] = useState('');
+  const [expertId, setExpertId] = useState('');
   const [busy, setBusy] = useState(false);
 
   const effectivePlantId = plantId || props.plants[0]?.id || '';
@@ -1378,18 +1531,27 @@ function InspectionsView(props: SharedProps & { canWrite: boolean }) {
     setBusy(true);
     props.setNotice(null);
     try {
-      const { error } = await props.supabase.from('inspections').insert({
-        organization_id: props.organizationId,
-        plant_id: effectivePlantId,
-        inspection_code: code.trim(),
-        purpose: purpose.trim() || null,
-        status: scheduledAt ? 'scheduled' : 'requested',
-        scheduled_at: scheduledAt ? new Date(scheduledAt).toISOString() : null,
-        due_at: dueAt ? new Date(dueAt).toISOString() : null,
-        capture_timezone: backendConfig.displayTimezone,
-        created_by: props.session.user.id,
-        notes: notes.trim() || null,
-      });
+      const { error } = props.requesterMode
+        ? await props.supabase.rpc('request_inspection', {
+            p_plant_id: effectivePlantId,
+            p_purpose: purpose.trim(),
+            p_notes: notes.trim(),
+          })
+        : await props.supabase.from('inspections').insert({
+            organization_id: props.organizationId,
+            plant_id: effectivePlantId,
+            inspection_code: code.trim(),
+            purpose: purpose.trim() || null,
+            status: scheduledAt ? 'scheduled' : 'requested',
+            scheduled_at: scheduledAt
+              ? new Date(scheduledAt).toISOString()
+              : null,
+            due_at: dueAt ? new Date(dueAt).toISOString() : null,
+            capture_timezone: backendConfig.displayTimezone,
+            assigned_expert_user_id: expertId || null,
+            created_by: props.session.user.id,
+            notes: notes.trim() || null,
+          });
       if (error) throw error;
       props.setNotice({ tone: 'success', text: '점검을 접수했습니다.' });
       setCode(`INS-${Date.now().toString().slice(-8)}`);
@@ -1415,23 +1577,50 @@ function InspectionsView(props: SharedProps & { canWrite: boolean }) {
     }
   }
 
+  async function assignExpert(id: string, assignedExpertUserId: string) {
+    props.setNotice(null);
+    const { error } = await props.supabase
+      .from('inspections')
+      .update({ assigned_expert_user_id: assignedExpertUserId || null })
+      .eq('id', id);
+    if (error) props.setNotice({ tone: 'error', text: errorMessage(error) });
+    else {
+      props.setNotice({ tone: 'success', text: '담당 전문가를 변경했습니다.' });
+      await props.refresh();
+    }
+  }
+
   const plantName = (id: string) =>
     props.plants.find((plant) => plant.id === id)?.name ?? '삭제된 발전소';
+  const activeExperts = props.members.filter(
+    (member) => member.role === 'expert' && member.status === 'active',
+  );
+  const availableStatuses = props.expertMode
+    ? inspectionStatuses.filter(([key]) =>
+        ['expert_review', 'approval'].includes(key),
+      )
+    : inspectionStatuses;
 
   return (
     <>
       <PageHeading
         eyebrow="INSPECTION WORKFLOW"
-        title="점검 접수·진행 관리"
-        copy="현장 일정과 마감 시각은 UTC로 안전하게 저장하고 화면에서는 Asia/Seoul 기준으로 표시합니다."
+        title={props.requesterMode ? '내 점검 요청' : '점검 접수·진행 관리'}
+        copy={
+          props.requesterMode
+            ? '내 발전소의 열화상 점검을 요청하고 진행 상태와 발행 결과를 확인합니다.'
+            : '현장 일정과 마감 시각은 UTC로 안전하게 저장하고 화면에서는 Asia/Seoul 기준으로 표시합니다.'
+        }
       />
       <div className="grid gap-5 xl:grid-cols-[380px_1fr]">
         <form
           onSubmit={create}
           className="h-fit space-y-4 rounded-2xl border bg-white p-5 shadow-sm"
         >
-          <h2 className="font-bold">새 점검 접수</h2>
-          {!props.canWrite && <ReadOnlyNote />}
+          <h2 className="font-bold">
+            {props.requesterMode ? '새 점검 요청' : '새 점검 접수'}
+          </h2>
+          {!props.canCreate && <ReadOnlyNote />}
           {props.plants.length === 0 && (
             <p className="rounded-xl bg-amber-50 p-3 text-xs text-amber-800">
               먼저 발전소를 등록해야 합니다.
@@ -1442,7 +1631,7 @@ function InspectionsView(props: SharedProps & { canWrite: boolean }) {
               className="h-9 w-full rounded-lg border bg-white px-3 text-sm"
               value={effectivePlantId}
               onChange={(e) => setPlantId(e.target.value)}
-              disabled={!props.canWrite}
+              disabled={!props.canCreate}
             >
               {props.plants.map((plant) => (
                 <option key={plant.id} value={plant.id}>
@@ -1451,52 +1640,76 @@ function InspectionsView(props: SharedProps & { canWrite: boolean }) {
               ))}
             </select>
           </Field>
-          <Field label="점검 번호">
-            <Input
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              disabled={!props.canWrite}
-              required
-            />
-          </Field>
+          {!props.requesterMode && (
+            <Field label="점검 번호">
+              <Input
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                disabled={!props.canCreate}
+                required
+              />
+            </Field>
+          )}
           <Field label="점검 목적">
             <Input
               value={purpose}
               onChange={(e) => setPurpose(e.target.value)}
-              disabled={!props.canWrite}
+              disabled={!props.canCreate}
             />
           </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="예정 일시">
-              <Input
-                type="datetime-local"
-                value={scheduledAt}
-                onChange={(e) => setScheduledAt(e.target.value)}
-                disabled={!props.canWrite}
-              />
-            </Field>
-            <Field label="완료 목표">
-              <Input
-                type="datetime-local"
-                value={dueAt}
-                onChange={(e) => setDueAt(e.target.value)}
-                disabled={!props.canWrite}
-              />
-            </Field>
-          </div>
+          {!props.requesterMode && (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="예정 일시">
+                  <Input
+                    type="datetime-local"
+                    value={scheduledAt}
+                    onChange={(e) => setScheduledAt(e.target.value)}
+                    disabled={!props.canCreate}
+                  />
+                </Field>
+                <Field label="완료 목표">
+                  <Input
+                    type="datetime-local"
+                    value={dueAt}
+                    onChange={(e) => setDueAt(e.target.value)}
+                    disabled={!props.canCreate}
+                  />
+                </Field>
+              </div>
+              <Field label="담당 전문가">
+                <select
+                  className="h-9 w-full rounded-lg border bg-white px-3 text-sm"
+                  value={expertId}
+                  onChange={(e) => setExpertId(e.target.value)}
+                  disabled={!props.canCreate}
+                >
+                  <option value="">미배정</option>
+                  {activeExperts.map((member) => (
+                    <option key={member.user_id} value={member.user_id}>
+                      {props.profiles[member.user_id]?.display_name ||
+                        props.profiles[member.user_id]?.email ||
+                        member.user_id}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </>
+          )}
           <Field label="현장 메모">
             <Textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              disabled={!props.canWrite}
+              disabled={!props.canCreate}
               rows={3}
             />
           </Field>
           <Button
             className="w-full"
-            disabled={!props.canWrite || !plantId || busy}
+            disabled={!props.canCreate || !effectivePlantId || busy}
           >
-            {busy ? <Loader2 className="animate-spin" /> : <Plus />}점검 접수
+            {busy ? <Loader2 className="animate-spin" /> : <Plus />}
+            {props.requesterMode ? '점검 요청' : '점검 접수'}
           </Button>
         </form>
         <section className="space-y-3">
@@ -1519,20 +1732,54 @@ function InspectionsView(props: SharedProps & { canWrite: boolean }) {
                     {formatDateTime(inspection.due_at)}
                   </p>
                 </div>
-                <select
-                  className="h-9 rounded-lg border bg-white px-3 text-sm font-semibold text-slate-700"
-                  value={inspection.status}
-                  onChange={(e) =>
-                    void updateStatus(inspection.id, e.target.value)
-                  }
-                  disabled={!props.canWrite}
-                >
-                  {inspectionStatuses.map(([key, label]) => (
-                    <option key={key} value={key}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex flex-col gap-2 sm:items-end">
+                  {!props.requesterMode && !props.expertMode && (
+                    <select
+                      className="h-9 max-w-56 rounded-lg border bg-white px-3 text-xs"
+                      value={inspection.assigned_expert_user_id ?? ''}
+                      onChange={(e) =>
+                        void assignExpert(inspection.id, e.target.value)
+                      }
+                      disabled={!props.canUpdate}
+                      aria-label="담당 전문가"
+                    >
+                      <option value="">전문가 미배정</option>
+                      {activeExperts.map((member) => (
+                        <option key={member.user_id} value={member.user_id}>
+                          {props.profiles[member.user_id]?.display_name ||
+                            props.profiles[member.user_id]?.email ||
+                            member.user_id}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {props.canUpdate ? (
+                    <select
+                      className="h-9 rounded-lg border bg-white px-3 text-sm font-semibold text-slate-700"
+                      value={inspection.status}
+                      onChange={(e) =>
+                        void updateStatus(inspection.id, e.target.value)
+                      }
+                    >
+                      {!availableStatuses.some(
+                        ([key]) => key === inspection.status,
+                      ) && (
+                        <option value={inspection.status}>
+                          {statusLabel(inspection.status, inspectionStatuses)}
+                        </option>
+                      )}
+                      {availableStatuses.map(([key, label]) => (
+                        <option key={key} value={key}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <StatusPill>
+                      {statusLabel(inspection.status, inspectionStatuses)}
+                    </StatusPill>
+                  )}
+                </div>
               </div>
               {inspection.notes && (
                 <p className="mt-4 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">
@@ -1997,11 +2244,20 @@ function FindingsView(props: SharedProps & { canWrite: boolean }) {
   );
 }
 
-function ReportsView(props: SharedProps & { canWrite: boolean }) {
+function ReportsView(
+  props: SharedProps & {
+    canCreate: boolean;
+    canApprove: boolean;
+    requesterMode: boolean;
+  },
+) {
   const [inspectionId, setInspectionId] = useState('');
   const [title, setTitle] = useState('태양광 발전설비 열화상 점검 보고서');
   const [busy, setBusy] = useState(false);
   const effectiveInspectionId = inspectionId || props.inspections[0]?.id || '';
+  const availableReportStatuses = props.canApprove
+    ? reportStatuses
+    : reportStatuses.filter(([key]) => ['draft', 'review'].includes(key));
 
   async function create(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -2067,45 +2323,57 @@ function ReportsView(props: SharedProps & { canWrite: boolean }) {
     <>
       <PageHeading
         eyebrow="REPORT CONTROL"
-        title="보고서 버전·승인·발행"
-        copy="점검별로 버전을 나눠 보존하고 승인자와 발행 시각을 남깁니다. 인쇄 화면은 실제 저장 데이터를 불러옵니다."
+        title={props.requesterMode ? '발행 보고서' : '보고서 버전·승인·발행'}
+        copy={
+          props.requesterMode
+            ? '관리자가 최종 발행한 내 발전소 보고서만 표시됩니다.'
+            : '점검별로 버전을 나눠 보존하고 승인자와 발행 시각을 남깁니다. 전문가는 검토 요청까지, 최종 승인과 발행은 관리자만 처리합니다.'
+        }
       />
       <div className="grid gap-5 xl:grid-cols-[380px_1fr]">
-        <form
-          onSubmit={create}
-          className="h-fit space-y-4 rounded-2xl border bg-white p-5 shadow-sm"
-        >
-          <h2 className="font-bold">보고서 초안 만들기</h2>
-          {!props.canWrite && <ReadOnlyNote />}
-          <Field label="점검">
-            <select
-              className="h-9 w-full rounded-lg border bg-white px-3 text-sm"
-              value={effectiveInspectionId}
-              onChange={(e) => setInspectionId(e.target.value)}
-              disabled={!props.canWrite}
-            >
-              {props.inspections.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {inspectionLabel(item.id)}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="보고서 제목">
-            <Input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              disabled={!props.canWrite}
-              required
-            />
-          </Field>
-          <Button
-            className="w-full"
-            disabled={!props.canWrite || !effectiveInspectionId || busy}
+        {props.canCreate ? (
+          <form
+            onSubmit={create}
+            className="h-fit space-y-4 rounded-2xl border bg-white p-5 shadow-sm"
           >
-            {busy ? <Loader2 className="animate-spin" /> : <Plus />}초안 생성
-          </Button>
-        </form>
+            <h2 className="font-bold">보고서 초안 만들기</h2>
+            <Field label="점검">
+              <select
+                className="h-9 w-full rounded-lg border bg-white px-3 text-sm"
+                value={effectiveInspectionId}
+                onChange={(e) => setInspectionId(e.target.value)}
+              >
+                {props.inspections.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {inspectionLabel(item.id)}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="보고서 제목">
+              <Input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                required
+              />
+            </Field>
+            <Button
+              className="w-full"
+              disabled={!effectiveInspectionId || busy}
+            >
+              {busy ? <Loader2 className="animate-spin" /> : <Plus />}초안 생성
+            </Button>
+          </form>
+        ) : (
+          <div className="h-fit rounded-2xl border bg-white p-5 shadow-sm">
+            <FileCheck2 className="size-7 text-teal-600" />
+            <h2 className="mt-4 font-bold">최종 결과만 제공됩니다</h2>
+            <p className="mt-2 text-xs leading-5 text-slate-500">
+              작성 중이거나 내부 검토 중인 문서는 보이지 않으며, 관리자가 발행한
+              버전만 열람할 수 있습니다.
+            </p>
+          </div>
+        )}
         <section className="space-y-3">
           {props.reports.map((report) => (
             <article
@@ -2134,18 +2402,32 @@ function ReportsView(props: SharedProps & { canWrite: boolean }) {
                       인쇄 보기
                     </Button>
                   </Link>
-                  <select
-                    className="h-8 rounded-lg border bg-white px-2 text-xs font-semibold"
-                    value={report.status}
-                    onChange={(e) => void updateStatus(report, e.target.value)}
-                    disabled={!props.canWrite}
-                  >
-                    {reportStatuses.map(([key, label]) => (
-                      <option key={key} value={key}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
+                  {props.canCreate ? (
+                    <select
+                      className="h-8 rounded-lg border bg-white px-2 text-xs font-semibold"
+                      value={report.status}
+                      onChange={(e) =>
+                        void updateStatus(report, e.target.value)
+                      }
+                    >
+                      {!availableReportStatuses.some(
+                        ([key]) => key === report.status,
+                      ) && (
+                        <option value={report.status}>
+                          {statusLabel(report.status, reportStatuses)}
+                        </option>
+                      )}
+                      {availableReportStatuses.map(([key, label]) => (
+                        <option key={key} value={key}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <StatusPill>
+                      {statusLabel(report.status, reportStatuses)}
+                    </StatusPill>
+                  )}
                 </div>
               </div>
             </article>
@@ -2341,34 +2623,68 @@ function MembersView(
   },
 ) {
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState('operator');
+  const [displayName, setDisplayName] = useState('');
+  const [role, setRole] = useState<'expert' | 'owner'>('expert');
   const [organizationName, setOrganizationName] = useState(
     props.workspace.organization.name,
   );
   const [busy, setBusy] = useState(false);
+  const [busyMemberId, setBusyMemberId] = useState<string | null>(null);
   async function addMember(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
     try {
-      const { error } = await props.supabase.rpc(
-        'add_organization_member_by_email',
+      const { data, error } = await props.supabase.functions.invoke(
+        'invite-platform-user',
         {
-          p_organization_id: props.organizationId,
-          p_email: email,
-          p_role: role,
+          body: {
+            organizationId: props.organizationId,
+            email,
+            role,
+            displayName,
+          },
         },
       );
       if (error) throw error;
+      if (data?.error) throw new Error(String(data.error));
       props.setNotice({
         tone: 'success',
-        text: '가입된 사용자의 조직 권한을 연결했습니다.',
+        text: data?.invitationSent
+          ? `${email.trim()} 주소로 ${roleLabels[role]} 초대 메일을 보냈습니다.`
+          : '이미 가입된 계정에 권한을 바로 연결했습니다.',
       });
       setEmail('');
+      setDisplayName('');
       await props.refresh();
     } catch (error) {
       props.setNotice({ tone: 'error', text: errorMessage(error) });
     } finally {
       setBusy(false);
+    }
+  }
+  async function updateMember(
+    member: Membership,
+    updates: { role?: string; status?: string },
+  ) {
+    setBusyMemberId(member.user_id);
+    props.setNotice(null);
+    try {
+      const { error } = await props.supabase.rpc('admin_update_member', {
+        p_organization_id: props.organizationId,
+        p_user_id: member.user_id,
+        p_role: updates.role ?? member.role,
+        p_status: updates.status ?? member.status,
+      });
+      if (error) throw error;
+      props.setNotice({
+        tone: 'success',
+        text: '사용자 역할과 계정 상태를 변경했습니다.',
+      });
+      await props.refresh();
+    } catch (error) {
+      props.setNotice({ tone: 'error', text: errorMessage(error) });
+    } finally {
+      setBusyMemberId(null);
     }
   }
   async function saveOrganization(event: SyntheticEvent<HTMLFormElement>) {
@@ -2389,8 +2705,8 @@ function MembersView(
     <>
       <PageHeading
         eyebrow="ACCESS CONTROL"
-        title="관리자·사용자 권한"
-        copy="사용자가 먼저 가입과 이메일 인증을 완료하면, 소유자가 이메일로 조직 역할을 연결합니다."
+        title="계정·역할 관리"
+        copy="의뢰인은 직접 가입하고, 전문가와 관리자는 초대 메일로 계정을 만듭니다. 관리자는 세 역할과 계정 상태를 모두 관리합니다."
       />
       <div className="grid gap-5 xl:grid-cols-[390px_1fr]">
         <div className="space-y-5">
@@ -2398,13 +2714,21 @@ function MembersView(
             onSubmit={addMember}
             className="space-y-4 rounded-2xl border bg-white p-5 shadow-sm"
           >
-            <h2 className="font-bold">사용자 권한 연결</h2>
+            <h2 className="font-bold">전문가·관리자 초대</h2>
             {!props.canWrite && <ReadOnlyNote />}
             <p className="rounded-xl bg-sky-50 p-3 text-xs leading-5 text-sky-800">
-              대상 사용자가 이 사이트에서 가입하고 이메일 인증을 마친 뒤
-              추가하세요.
+              초대받은 사용자가 메일의 링크를 열면 계정이 활성화됩니다. 의뢰인은
+              로그인 화면에서 직접 가입합니다.
             </p>
-            <Field label="가입 이메일">
+            <Field label="이름">
+              <Input
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                disabled={!props.canWrite}
+                maxLength={100}
+              />
+            </Field>
+            <Field label="초대 이메일">
               <Input
                 type="email"
                 value={email}
@@ -2417,18 +2741,16 @@ function MembersView(
               <select
                 className="h-9 w-full rounded-lg border bg-white px-3 text-sm"
                 value={role}
-                onChange={(e) => setRole(e.target.value)}
+                onChange={(e) => setRole(e.target.value as 'expert' | 'owner')}
                 disabled={!props.canWrite}
               >
-                {Object.entries(roleLabels).map(([key, label]) => (
-                  <option key={key} value={key}>
-                    {label}
-                  </option>
-                ))}
+                <option value="expert">전문가</option>
+                <option value="owner">관리자</option>
               </select>
             </Field>
             <Button className="w-full" disabled={!props.canWrite || busy}>
-              {busy ? <Loader2 className="animate-spin" /> : <Users />}권한 연결
+              {busy ? <Loader2 className="animate-spin" /> : <Users />}초대 메일
+              보내기
             </Button>
           </form>
           <form
@@ -2476,13 +2798,40 @@ function MembersView(
                       {profile?.email || member.user_id}
                     </p>
                   </div>
-                  <div className="text-right">
-                    <StatusPill>
-                      {roleLabels[member.role] ?? member.role}
-                    </StatusPill>
-                    <p className="mt-2 text-[11px] text-slate-400">
-                      {member.status === 'active' ? '사용 중' : member.status}
-                    </p>
+                  <div className="flex min-w-48 flex-col gap-2 sm:flex-row">
+                    <select
+                      className="h-9 rounded-lg border bg-white px-2 text-xs font-semibold"
+                      value={member.role}
+                      disabled={
+                        !props.canWrite || busyMemberId === member.user_id
+                      }
+                      onChange={(e) =>
+                        void updateMember(member, { role: e.target.value })
+                      }
+                      aria-label="사용자 역할"
+                    >
+                      <option value="client">의뢰인</option>
+                      <option value="expert">전문가</option>
+                      <option value="owner">관리자</option>
+                    </select>
+                    <select
+                      className="h-9 rounded-lg border bg-white px-2 text-xs font-semibold"
+                      value={member.status}
+                      disabled={
+                        !props.canWrite || busyMemberId === member.user_id
+                      }
+                      onChange={(e) =>
+                        void updateMember(member, { status: e.target.value })
+                      }
+                      aria-label="계정 상태"
+                    >
+                      <option value="invited">초대 대기</option>
+                      <option value="active">사용 중</option>
+                      <option value="suspended">사용 중지</option>
+                    </select>
+                    {busyMemberId === member.user_id && (
+                      <Loader2 className="m-auto size-4 animate-spin text-teal-600" />
+                    )}
                   </div>
                 </div>
               );
