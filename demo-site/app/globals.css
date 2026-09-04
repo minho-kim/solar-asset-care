@@ -50,6 +50,7 @@
 
 body {
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  overflow-x: hidden;
 }
 
 :root {
@@ -162,11 +163,26 @@ body {
 }
 
 .status {
-  height: 1.25rem;
+  min-height: 1.5rem;
   border-radius: 999px;
   padding-inline: 0.45rem;
-  font-size: 9px;
+  font-size: 0.75rem;
   font-weight: 700;
+}
+
+@media (max-width: 767px) {
+  button,
+  select,
+  input,
+  textarea {
+    font-size: 1rem;
+  }
+
+  button,
+  select,
+  input:not([type='checkbox']):not([type='radio']) {
+    min-height: 2.75rem;
+  }
 }
 
 .status-amber {
@@ -199,6 +215,10 @@ body {
     font-size: 11pt;
     line-height: 1.42;
     color: #172033;
+  }
+
+  .report-sheet :is(p, li, td, th, span, small) {
+    font-size: max(11pt, 1em) !important;
   }
 
   .report-sheet header {

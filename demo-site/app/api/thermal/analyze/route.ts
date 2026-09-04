@@ -102,6 +102,35 @@ function collectRegions(
 }
 
 export async function POST(request: Request) {
+  const projectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  const authorization = request.headers.get('authorization');
+  const accessToken = authorization?.startsWith('Bearer ')
+    ? authorization.slice(7)
+    : '';
+
+  if (!projectUrl || !publishableKey) {
+    return Response.json(
+      { error: '분석 서비스 연결 설정이 없습니다.' },
+      { status: 503 },
+    );
+  }
+  if (!accessToken) {
+    return Response.json({ error: '로그인이 필요합니다.' }, { status: 401 });
+  }
+
+  const supabase = createClient(projectUrl, publishableKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data: userData, error: userError } =
+    await supabase.auth.getUser(accessToken);
+  if (userError || !userData.user) {
+    return Response.json(
+      { error: '로그인 정보가 만료됐습니다. 다시 로그인해 주세요.' },
+      { status: 401 },
+    );
+  }
+
   let payload: AnalyzePayload;
   try {
     payload = (await request.json()) as AnalyzePayload;
@@ -179,3 +208,4 @@ export async function POST(request: Request) {
     analyzedAt: new Date().toISOString(),
   });
 }
+import { createClient } from '@supabase/supabase-js';

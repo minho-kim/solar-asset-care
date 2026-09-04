@@ -1090,6 +1090,26 @@ export type Database = {
           organization_name: string;
         }[];
       };
+      create_quote_request_with_partners: {
+        Args: {
+          p_commission_rate?: number;
+          p_inspection_id?: string | null;
+          p_maintenance_request_id?: string | null;
+          p_partner_ids: string[];
+          p_plant_id: string;
+          p_requester_user_id: string;
+          p_response_due_at: string | null;
+          p_scope_summary: string;
+          p_title: string;
+        };
+        Returns: Database['public']['Tables']['quote_requests']['Row'];
+        SetofOptions: {
+          from: '*';
+          to: 'quote_requests';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       create_requester_plant: {
         Args: {
           p_address: string;
@@ -1117,6 +1137,25 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      create_requester_plant_with_details: {
+        Args: {
+          p_address: string;
+          p_capacity_kw: number;
+          p_commissioned_on: string;
+          p_data_use_consent: boolean;
+          p_inverter_model: string;
+          p_module_model: string;
+          p_name: string;
+          p_operator_type: string;
+        };
+        Returns: Database['public']['Tables']['plants']['Row'];
+        SetofOptions: {
+          from: '*';
+          to: 'plants';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       register_requester: {
         Args: never;
         Returns: {
@@ -1124,6 +1163,25 @@ export type Database = {
           organization_id: string;
           organization_name: string;
         }[];
+      };
+      record_partner_quote_response: {
+        Args: {
+          p_amount_krw: number;
+          p_commission_rate: number;
+          p_conditions: string;
+          p_estimated_days: number | null;
+          p_proposed_start_on: string | null;
+          p_quote_id: string;
+          p_scope: string;
+          p_valid_until: string | null;
+        };
+        Returns: Database['public']['Tables']['partner_quotes']['Row'];
+        SetofOptions: {
+          from: '*';
+          to: 'partner_quotes';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
       };
       request_inspection: {
         Args: { p_notes: string; p_plant_id: string; p_purpose: string };

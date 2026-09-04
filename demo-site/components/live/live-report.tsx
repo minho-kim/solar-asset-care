@@ -160,8 +160,8 @@ export function LiveReport({ reportId }: { reportId: string }) {
     (finding) => finding.disposition === 'accepted',
   );
   return (
-    <main className="min-h-screen bg-slate-200 px-4 py-8 text-slate-900 print:bg-white print:p-0">
-      <div className="report-actions mx-auto mb-4 flex max-w-[210mm] justify-between">
+    <main className="min-h-screen bg-slate-200 px-2 py-4 text-slate-900 sm:px-4 sm:py-8 print:bg-white print:p-0">
+      <div className="report-actions mx-auto mb-4 flex max-w-[210mm] flex-col gap-2 sm:flex-row sm:justify-between">
         <Link href="/admin">
           <Button variant="outline">
             <ArrowLeft />
@@ -173,27 +173,27 @@ export function LiveReport({ reportId }: { reportId: string }) {
           인쇄·PDF 저장
         </Button>
       </div>
-      <article className="report-sheet mx-auto min-h-[297mm] max-w-[210mm] bg-white p-[16mm] shadow-xl print:min-h-0 print:max-w-none print:p-0 print:shadow-none">
-        <header className="flex items-start justify-between border-b-2 border-slate-900 pb-6">
+      <article className="report-sheet mx-auto max-w-[210mm] bg-white p-5 shadow-xl sm:min-h-[297mm] sm:p-[16mm] print:min-h-0 print:max-w-none print:p-0 print:shadow-none">
+        <header className="flex flex-col items-start justify-between gap-5 border-b-2 border-slate-900 pb-6 sm:flex-row">
           <div>
             <div className="flex items-center gap-2 text-teal-700">
               <SunMedium className="size-5" />
               <strong>SolarScope</strong>
             </div>
-            <h1 className="mt-5 text-3xl font-bold tracking-tight">
+            <h1 className="mt-5 text-2xl font-bold tracking-tight sm:text-3xl">
               {data.report.title}
             </h1>
             <p className="mt-2 text-sm text-slate-500">
               {data.inspection.inspection_code} · 보고서 {data.report.version}차
             </p>
           </div>
-          <div className="rounded-xl border px-4 py-3 text-right">
+          <div className="w-full rounded-xl border px-4 py-3 text-left sm:w-auto sm:text-right">
             <span className="block text-xs text-slate-500">상태</span>
             <strong className="mt-1 block text-sm">{data.report.status}</strong>
           </div>
         </header>
 
-        <section className="report-meta grid grid-cols-2 gap-x-8 gap-y-4 border-b py-6 text-sm">
+        <section className="report-meta grid gap-4 border-b py-6 text-sm sm:grid-cols-2 sm:gap-x-8">
           <ReportItem label="발전소" value={data.plant.name} />
           <ReportItem label="운영 조직" value={data.organization.name} />
           <ReportItem label="주소" value={data.plant.address || '미입력'} />
@@ -221,34 +221,36 @@ export function LiveReport({ reportId }: { reportId: string }) {
 
         <ReportSection title="전문가 채택 소견">
           {accepted.length ? (
-            <table className="w-full border-collapse text-left text-sm">
-              <thead>
-                <tr className="border-y bg-slate-50">
-                  <th className="px-3 py-2">구분</th>
-                  <th className="px-3 py-2">상대 점수</th>
-                  <th className="px-3 py-2">판정 메모</th>
-                </tr>
-              </thead>
-              <tbody>
-                {accepted.map((finding) => (
-                  <tr key={finding.id} className="border-b">
-                    <td className="px-3 py-3">
-                      {finding.kind === 'hotspot'
-                        ? '고온 후보'
-                        : finding.kind === 'coldspot'
-                          ? '저온 후보'
-                          : finding.kind}
-                    </td>
-                    <td className="px-3 py-3">
-                      {finding.relative_heat_score ?? '—'}
-                    </td>
-                    <td className="px-3 py-3">
-                      {finding.expert_note || '채택'}
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="min-w-[34rem] w-full border-collapse text-left text-sm">
+                <thead>
+                  <tr className="border-y bg-slate-50">
+                    <th className="px-3 py-2">구분</th>
+                    <th className="px-3 py-2">상대 점수</th>
+                    <th className="px-3 py-2">판정 메모</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {accepted.map((finding) => (
+                    <tr key={finding.id} className="border-b">
+                      <td className="px-3 py-3">
+                        {finding.kind === 'hotspot'
+                          ? '고온 후보'
+                          : finding.kind === 'coldspot'
+                            ? '저온 후보'
+                            : finding.kind}
+                      </td>
+                      <td className="px-3 py-3">
+                        {finding.relative_heat_score ?? '—'}
+                      </td>
+                      <td className="px-3 py-3">
+                        {finding.expert_note || '채택'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : (
             <p className="text-slate-600">
               전문가가 채택한 이상 소견이 없습니다.
@@ -262,7 +264,7 @@ export function LiveReport({ reportId }: { reportId: string }) {
               {data.maintenance.map((item) => (
                 <li
                   key={item.id}
-                  className="flex justify-between border-b pb-3"
+                  className="flex flex-col justify-between gap-1 border-b pb-3 sm:flex-row"
                 >
                   <span>{item.title}</span>
                   <strong>{item.status}</strong>
@@ -279,7 +281,7 @@ export function LiveReport({ reportId }: { reportId: string }) {
           최종 판단에는 원본 열화상 메타데이터, 촬영 조건, 전기적 계측과 전문가
           검토가 필요합니다.
         </aside>
-        <footer className="report-footer mt-12 flex justify-between border-t pt-5 text-xs text-slate-500">
+        <footer className="report-footer mt-12 flex flex-col justify-between gap-2 border-t pt-5 text-xs text-slate-500 sm:flex-row">
           <span>생성 {format(data.report.created_at)}</span>
           <span>승인 {format(data.report.approved_at)}</span>
         </footer>

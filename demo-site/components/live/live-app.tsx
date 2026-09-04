@@ -22,6 +22,7 @@ import {
   Gauge,
   Handshake,
   ImageIcon,
+  KeyRound,
   LayoutDashboard,
   Loader2,
   LockKeyhole,
@@ -52,6 +53,7 @@ type Maintenance = Tables<'maintenance_requests'>;
 type Partner = Tables<'partners'>;
 type PartnerQuote = Tables<'partner_quotes'>;
 type QuoteRequest = Tables<'quote_requests'>;
+type PlantRequester = Tables<'plant_requesters'>;
 type Membership = Tables<'organization_members'>;
 type Organization = Tables<'organizations'>;
 type Profile = Tables<'profiles'>;
@@ -145,6 +147,15 @@ const quoteRequestStatusLabels: Record<string, string> = {
   cancelled: '취소',
 };
 
+const partnerQuoteStatusLabels: Record<string, string> = {
+  requested: '회신 대기',
+  submitted: '제출 완료',
+  selected: '선택',
+  not_selected: '미선택',
+  withdrawn: '철회',
+  completed: '완료',
+};
+
 const roleLabels: Record<string, string> = {
   owner: '관리자',
   expert: '전문가',
@@ -210,6 +221,23 @@ function formatWon(value: number | null | undefined) {
   return `${new Intl.NumberFormat('ko-KR').format(value)}원`;
 }
 
+function jsonRecord(value: Json): Record<string, Json | undefined> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value
+    : {};
+}
+
+function jsonText(value: Json | undefined, fallback = '') {
+  return typeof value === 'string' || typeof value === 'number'
+    ? String(value)
+    : fallback;
+}
+
+function formText(form: FormData, name: string) {
+  const value = form.get(name);
+  return typeof value === 'string' ? value : '';
+}
+
 function statusLabel(
   value: string,
   items: ReadonlyArray<readonly [string, string]>,
@@ -239,6 +267,7 @@ function NoticeBar({ notice }: { notice: Notice }) {
 export function LiveApp() {
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
   const [session, setSession] = useState<Session | null>(null);
+  const [recoveringPassword, setRecoveringPassword] = useState(false);
   const [loading, setLoading] = useState(Boolean(supabase));
 
   useEffect(() => {
@@ -247,8 +276,9 @@ export function LiveApp() {
       setSession(data.session);
       setLoading(false);
     });
-    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data } = supabase.auth.onAuthStateChange((event, nextSession) => {
       setSession(nextSession);
+      if (event === 'PASSWORD_RECOVERY') setRecoveringPassword(true);
     });
     return () => data.subscription.unsubscribe();
   }, [supabase]);
@@ -256,6 +286,14 @@ export function LiveApp() {
   if (loading)
     return <FullScreenLoading label="안전한 작업공간을 여는 중입니다." />;
   if (!supabase) return <ConfigurationMissing />;
+  if (recoveringPassword && session) {
+    return (
+      <UpdatePasswordPanel
+        supabase={supabase}
+        onComplete={() => setRecoveringPassword(false)}
+      />
+    );
+  }
   if (!session) return <AuthPanel supabase={supabase} />;
   return <WorkspaceGate supabase={supabase} session={session} />;
 }
@@ -285,7 +323,7 @@ function Brand() {
         <strong className="block text-lg tracking-tight text-slate-900">
           SolarScope
         </strong>
-        <span className="block text-[11px] font-medium tracking-[0.12em] text-teal-700">
+        <span className="block text-xs font-medium tracking-[0.12em] text-teal-700">
           SOLAR ASSET CARE
         </span>
       </span>
@@ -306,19 +344,17 @@ function ConfigurationMissing() {
           배포 환경에 프로젝트 URL과 publishable key를 등록하면 로그인과 실제
           데이터 저장이 시작됩니다. 비밀키는 브라우저에 넣지 않습니다.
         </p>
-        <Link
-          className="mt-7 inline-flex text-sm font-semibold text-teal-700 underline"
-          href="/demo"
-        >
-          데이터 없이 데모 화면 보기
-        </Link>
+        <p className="mt-7 rounded-xl bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+          운영 담당자가 배포 환경의 연결값을 확인해야 합니다. 연결 전에는 계정과
+          현장 자료를 입력하지 마세요.
+        </p>
       </div>
     </main>
   );
 }
 
 function AuthPanel({ supabase }: { supabase: SupabaseClient<Database> }) {
-  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  const [mode, setMode] = useState<'signin' | 'signup' | 'forgot'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
@@ -330,7 +366,17 @@ function AuthPanel({ supabase }: { supabase: SupabaseClient<Database> }) {
     setBusy(true);
     setNotice(null);
     try {
-      if (mode === 'signup') {
+      if (mode === 'forgot') {
+        const { error } = await supabase.auth.resetPasswordForEmail(
+          email.trim(),
+          { redirectTo: `${window.location.origin}/` },
+        );
+        if (error) throw error;
+        setNotice({
+          tone: 'success',
+          text: '비밀번호 변경 메일을 보냈습니다. 메일의 링크는 한 번만 사용해 주세요.',
+        });
+      } else if (mode === 'signup') {
         const { data, error } = await supabase.auth.signUp({
           email: email.trim(),
           password,
@@ -361,16 +407,16 @@ function AuthPanel({ supabase }: { supabase: SupabaseClient<Database> }) {
   }
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#dff5f1_0,transparent_35%),linear-gradient(135deg,#f7fafb,#e8eff2)] px-5 py-8 md:py-14">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#dff5f1_0,transparent_35%),linear-gradient(135deg,#f7fafb,#e8eff2)] px-3 py-4 sm:px-5 sm:py-8 md:py-14">
       <div className="mx-auto grid max-w-6xl overflow-hidden rounded-[2rem] border border-white/80 bg-white shadow-[0_30px_90px_rgba(15,49,55,0.15)] lg:grid-cols-[1.12fr_0.88fr]">
-        <section className="bg-[#0f3c40] p-8 text-white md:p-12 lg:p-14">
+        <section className="order-2 bg-[#0f3c40] p-6 text-white sm:p-8 md:p-12 lg:order-1 lg:p-14">
           <BrandOnDark />
-          <div className="mt-16 max-w-xl">
+          <div className="mt-10 max-w-xl sm:mt-16">
             <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-semibold text-teal-100">
               <ShieldCheck className="size-3.5" /> 실제 운영 데이터는 로그인
               후에만 표시
             </div>
-            <h1 className="mt-6 text-4xl font-bold leading-[1.16] tracking-tight md:text-5xl">
+            <h1 className="mt-6 text-3xl font-bold leading-[1.16] tracking-tight sm:text-4xl md:text-5xl">
               점검 접수부터 보고서와 유지보수까지 한곳에서
             </h1>
             <p className="mt-5 max-w-lg text-sm leading-7 text-slate-200 md:text-base">
@@ -378,7 +424,7 @@ function AuthPanel({ supabase }: { supabase: SupabaseClient<Database> }) {
               조치 이력을 조직별 권한으로 관리합니다.
             </p>
           </div>
-          <div className="mt-14 grid gap-3 sm:grid-cols-3">
+          <div className="mt-9 grid gap-3 sm:mt-14 sm:grid-cols-3">
             {[
               ['01', '원본 보존', '비공개 파일 저장'],
               ['02', '업무 연결', '접수→판정→조치'],
@@ -400,16 +446,25 @@ function AuthPanel({ supabase }: { supabase: SupabaseClient<Database> }) {
           </div>
         </section>
 
-        <section className="p-7 md:p-12 lg:p-14">
+        <section className="order-1 p-5 sm:p-7 md:p-12 lg:order-2 lg:p-14">
           <div className="mx-auto max-w-sm">
+            <div className="mb-8 lg:hidden">
+              <Brand />
+            </div>
             <p className="text-sm font-semibold text-teal-700">서비스 접속</p>
             <h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">
-              {mode === 'signin' ? '로그인' : '계정 만들기'}
+              {mode === 'signin'
+                ? '로그인'
+                : mode === 'signup'
+                  ? '계정 만들기'
+                  : '비밀번호 재설정'}
             </h2>
             <p className="mt-3 text-sm leading-6 text-slate-500">
               {mode === 'signin'
                 ? '의뢰인·전문가·관리자 계정으로 작업공간에 접속합니다.'
-                : '의뢰인 전용 가입입니다. 전문가와 관리자는 관리자가 초대합니다.'}
+                : mode === 'signup'
+                  ? '의뢰인 전용 가입입니다. 전문가와 관리자는 관리자가 초대합니다.'
+                  : '가입한 이메일로 안전한 비밀번호 변경 링크를 보냅니다.'}
             </p>
             <div className="mt-7">
               <NoticeBar notice={notice} />
@@ -433,47 +488,135 @@ function AuthPanel({ supabase }: { supabase: SupabaseClient<Database> }) {
                   required
                 />
               </Field>
-              <Field label="비밀번호" hint="8자 이상을 권장합니다.">
-                <Input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  autoComplete={
-                    mode === 'signin' ? 'current-password' : 'new-password'
-                  }
-                  minLength={8}
-                  required
-                />
-              </Field>
+              {mode !== 'forgot' && (
+                <Field label="비밀번호" hint="8자 이상">
+                  <Input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    autoComplete={
+                      mode === 'signin' ? 'current-password' : 'new-password'
+                    }
+                    minLength={8}
+                    required
+                  />
+                </Field>
+              )}
               <Button className="h-11 w-full" disabled={busy}>
                 {busy && <Loader2 className="animate-spin" />}
-                {mode === 'signin' ? '로그인' : '가입 메일 받기'}
+                {mode === 'signin'
+                  ? '로그인'
+                  : mode === 'signup'
+                    ? '가입 메일 받기'
+                    : '변경 메일 받기'}
                 {!busy && <ArrowRight />}
               </Button>
             </form>
-            <button
-              className="mt-5 w-full text-sm text-slate-600 hover:text-teal-700"
-              type="button"
-              onClick={() => {
-                setMode(mode === 'signin' ? 'signup' : 'signin');
-                setNotice(null);
-              }}
-            >
-              {mode === 'signin'
-                ? '의뢰인이신가요? 회원가입'
-                : '이미 계정이 있나요? 로그인'}
-            </button>
-            <div className="mt-9 border-t pt-5 text-center">
-              <Link
-                className="text-xs font-semibold text-slate-500 hover:text-teal-700"
-                href="/demo"
+            <div className="mt-5 flex flex-col items-center gap-3 text-sm">
+              <button
+                className="text-slate-600 hover:text-teal-700"
+                type="button"
+                onClick={() => {
+                  setMode(mode === 'signup' ? 'signin' : 'signup');
+                  setNotice(null);
+                }}
               >
-                기능 전체 데모 먼저 보기 →
-              </Link>
+                {mode === 'signup'
+                  ? '이미 계정이 있나요? 로그인'
+                  : '의뢰인이신가요? 회원가입'}
+              </button>
+              <button
+                className="text-slate-500 underline-offset-4 hover:text-teal-700 hover:underline"
+                type="button"
+                onClick={() => {
+                  setMode(mode === 'forgot' ? 'signin' : 'forgot');
+                  setNotice(null);
+                }}
+              >
+                {mode === 'forgot'
+                  ? '로그인으로 돌아가기'
+                  : '비밀번호를 잊으셨나요?'}
+              </button>
             </div>
           </div>
         </section>
       </div>
+    </main>
+  );
+}
+
+function UpdatePasswordPanel({
+  supabase,
+  onComplete,
+}: {
+  supabase: SupabaseClient<Database>;
+  onComplete: () => void;
+}) {
+  const [password, setPassword] = useState('');
+  const [confirmation, setConfirmation] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<Notice>(null);
+
+  async function updatePassword(event: SyntheticEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (password !== confirmation) {
+      setNotice({ tone: 'error', text: '두 비밀번호가 일치하지 않습니다.' });
+      return;
+    }
+    setBusy(true);
+    setNotice(null);
+    try {
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) throw error;
+      setNotice({ tone: 'success', text: '비밀번호를 변경했습니다.' });
+      window.setTimeout(onComplete, 500);
+    } catch (error) {
+      setNotice({ tone: 'error', text: errorMessage(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="grid min-h-screen place-items-center bg-[#eef3f5] px-4 py-8">
+      <section className="w-full max-w-md rounded-3xl border bg-white p-6 shadow-sm sm:p-8">
+        <span className="grid size-11 place-items-center rounded-2xl bg-teal-50 text-teal-700">
+          <KeyRound className="size-5" />
+        </span>
+        <h1 className="mt-5 text-2xl font-bold">새 비밀번호 설정</h1>
+        <p className="mt-2 text-sm leading-6 text-slate-500">
+          다른 서비스에서 사용하지 않는 8자 이상의 비밀번호를 입력하세요.
+        </p>
+        <div className="mt-5">
+          <NoticeBar notice={notice} />
+        </div>
+        <form className="space-y-4" onSubmit={updatePassword}>
+          <Field label="새 비밀번호">
+            <Input
+              type="password"
+              autoComplete="new-password"
+              minLength={8}
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              required
+            />
+          </Field>
+          <Field label="새 비밀번호 확인">
+            <Input
+              type="password"
+              autoComplete="new-password"
+              minLength={8}
+              value={confirmation}
+              onChange={(event) => setConfirmation(event.target.value)}
+              required
+            />
+          </Field>
+          <Button className="h-11 w-full" disabled={busy}>
+            {busy ? <Loader2 className="animate-spin" /> : <KeyRound />}
+            비밀번호 변경
+          </Button>
+        </form>
+      </section>
     </main>
   );
 }
@@ -486,7 +629,7 @@ function BrandOnDark() {
       </span>
       <span>
         <strong className="block text-lg tracking-tight">SolarScope</strong>
-        <span className="block text-[11px] font-medium tracking-[0.12em] text-teal-200">
+        <span className="block text-xs font-medium tracking-[0.12em] text-teal-200">
           SOLAR ASSET CARE
         </span>
       </span>
@@ -507,7 +650,9 @@ function Field({
     <label className="block">
       <span className="mb-1.5 flex items-center justify-between text-sm font-semibold text-slate-700">
         {label}
-        {hint && <small className="font-normal text-slate-400">{hint}</small>}
+        {hint && (
+          <small className="text-xs font-normal text-slate-400">{hint}</small>
+        )}
       </span>
       {children}
     </label>
@@ -751,6 +896,7 @@ function AdminConsole({
   const [partners, setPartners] = useState<Partner[]>([]);
   const [quoteRequests, setQuoteRequests] = useState<QuoteRequest[]>([]);
   const [partnerQuotes, setPartnerQuotes] = useState<PartnerQuote[]>([]);
+  const [plantRequesters, setPlantRequesters] = useState<PlantRequester[]>([]);
   const [members, setMembers] = useState<Membership[]>([]);
   const [profiles, setProfiles] = useState<Record<string, Profile>>({});
   const [loading, setLoading] = useState(true);
@@ -789,6 +935,7 @@ function AdminConsole({
         partnerResult,
         quoteRequestResult,
         partnerQuoteResult,
+        plantRequesterResult,
         memberResult,
       ] = await Promise.all([
         scoped(
@@ -862,6 +1009,9 @@ function AdminConsole({
             .order('created_at', { ascending: false }),
         ),
         scoped(
+          supabase.from('plant_requesters').select('*').order('created_at'),
+        ),
+        scoped(
           supabase
             .from('organization_members')
             .select('*')
@@ -880,6 +1030,7 @@ function AdminConsole({
         partnerResult,
         quoteRequestResult,
         partnerQuoteResult,
+        plantRequesterResult,
         memberResult,
       ];
       const failed = results.find((result) => result.error);
@@ -894,6 +1045,7 @@ function AdminConsole({
       setPartners((partnerResult.data ?? []) as Partner[]);
       setQuoteRequests((quoteRequestResult.data ?? []) as QuoteRequest[]);
       setPartnerQuotes((partnerQuoteResult.data ?? []) as PartnerQuote[]);
+      setPlantRequesters((plantRequesterResult.data ?? []) as PlantRequester[]);
       const nextMembers = (memberResult.data ?? []) as Membership[];
       setMembers(nextMembers);
       if (nextMembers.length) {
@@ -937,6 +1089,7 @@ function AdminConsole({
     partners,
     quoteRequests,
     partnerQuotes,
+    plantRequesters,
     members,
     profiles,
     refresh,
@@ -977,9 +1130,32 @@ function AdminConsole({
         </div>
       </header>
 
+      <div className="sticky top-16 z-20 border-b bg-white px-3 py-2 md:hidden">
+        <label className="flex items-center gap-3">
+          <span className="shrink-0 text-sm font-bold text-slate-700">
+            메뉴
+          </span>
+          <select
+            className="h-11 min-w-0 flex-1 rounded-xl border bg-white px-3 text-base font-semibold text-slate-800"
+            value={view}
+            onChange={(event) => {
+              setView(event.target.value as View);
+              setNotice(null);
+            }}
+            aria-label="작업 메뉴"
+          >
+            {visibleNavItems.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
       <div className="mx-auto grid max-w-[1500px] md:grid-cols-[220px_1fr]">
-        <aside className="border-b bg-white p-3 md:min-h-[calc(100vh-4rem)] md:border-r md:border-b-0 md:p-4">
-          <nav className="flex gap-1 overflow-x-auto md:flex-col">
+        <aside className="hidden bg-white p-4 md:block md:min-h-[calc(100vh-4rem)] md:border-r">
+          <nav className="flex flex-col gap-1">
             {visibleNavItems.map((item) => {
               const Icon = item.icon;
               return (
@@ -1006,13 +1182,13 @@ function AdminConsole({
             <strong className="mt-3 block text-xs">
               조직별 접근 제어 적용
             </strong>
-            <p className="mt-1 text-[11px] leading-5 text-slate-500">
+            <p className="mt-1 text-xs leading-5 text-slate-500">
               다른 조직의 데이터와 원본 파일은 조회할 수 없습니다.
             </p>
           </div>
         </aside>
 
-        <main className="min-w-0 p-4 md:p-6 lg:p-8">
+        <main className="min-w-0 p-3 sm:p-4 md:p-6 lg:p-8">
           <NoticeBar notice={notice} />
           {loading && plants.length === 0 ? (
             <div className="grid min-h-[55vh] place-items-center">
@@ -1093,6 +1269,7 @@ type SharedProps = {
   partners: Partner[];
   quoteRequests: QuoteRequest[];
   partnerQuotes: PartnerQuote[];
+  plantRequesters: PlantRequester[];
   members: Membership[];
   profiles: Record<string, Profile>;
   refresh: () => Promise<void>;
@@ -1171,15 +1348,7 @@ function DashboardView(props: SharedProps & { setView: (view: View) => void }) {
       <PageHeading
         eyebrow="LIVE WORKSPACE"
         title="실제 운영 현황"
-        copy="아래 숫자와 목록은 데모용 고정값이 아니라 현재 Supabase 프로젝트에 저장된 조직 데이터입니다."
-        action={
-          <Link
-            href="/demo"
-            className="text-sm font-semibold text-teal-700 hover:underline"
-          >
-            전체 기능 데모 보기 →
-          </Link>
-        }
+        copy="현재 조직에 저장된 발전소·점검·판정·보고서·유지보수 진행 상황입니다."
       />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
@@ -1326,6 +1495,10 @@ function PlantsView(
   const [address, setAddress] = useState('');
   const [capacity, setCapacity] = useState('');
   const [commissionedOn, setCommissionedOn] = useState('');
+  const [operatorType, setOperatorType] = useState('개인');
+  const [moduleModel, setModuleModel] = useState('');
+  const [inverterModel, setInverterModel] = useState('');
+  const [dataUseConsent, setDataUseConsent] = useState(false);
   const [requesterId, setRequesterId] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -1336,6 +1509,10 @@ function PlantsView(
     setAddress('');
     setCapacity('');
     setCommissionedOn('');
+    setOperatorType('개인');
+    setModuleModel('');
+    setInverterModel('');
+    setDataUseConsent(false);
     setRequesterId('');
   }
 
@@ -1346,6 +1523,11 @@ function PlantsView(
     setAddress(plant.address ?? '');
     setCapacity(plant.capacity_kw == null ? '' : String(plant.capacity_kw));
     setCommissionedOn(plant.commissioned_on ?? '');
+    const metadata = jsonRecord(plant.metadata);
+    setOperatorType(jsonText(metadata.operator_type, '개인'));
+    setModuleModel(jsonText(metadata.module_model));
+    setInverterModel(jsonText(metadata.inverter_model));
+    setDataUseConsent(Boolean(metadata.data_use_consent_at));
   }
 
   async function save(event: SyntheticEvent<HTMLFormElement>) {
@@ -1353,12 +1535,31 @@ function PlantsView(
     setBusy(true);
     props.setNotice(null);
     try {
+      const previousMetadata = editingId
+        ? jsonRecord(
+            props.plants.find((plant) => plant.id === editingId)?.metadata ??
+              {},
+          )
+        : {};
+      const metadata = {
+        ...previousMetadata,
+        operator_type: operatorType.trim() || null,
+        module_model: moduleModel.trim() || null,
+        inverter_model: inverterModel.trim() || null,
+        data_use_consent_at:
+          previousMetadata.data_use_consent_at || new Date().toISOString(),
+        data_use_consent_version: 'operational-registration-v1',
+      } as Json;
       const result = props.requesterMode
-        ? await props.supabase.rpc('create_requester_plant', {
+        ? await props.supabase.rpc('create_requester_plant_with_details', {
             p_name: name.trim(),
             p_address: address.trim(),
             p_capacity_kw: Number(capacity),
             p_commissioned_on: commissionedOn,
+            p_operator_type: operatorType.trim(),
+            p_module_model: moduleModel.trim(),
+            p_inverter_model: inverterModel.trim(),
+            p_data_use_consent: dataUseConsent,
           })
         : editingId
           ? await props.supabase
@@ -1371,6 +1572,7 @@ function PlantsView(
                 capacity_kw: capacity ? Number(capacity) : null,
                 commissioned_on: commissionedOn || null,
                 timezone: backendConfig.displayTimezone,
+                metadata,
               })
               .eq('id', editingId)
           : await props.supabase
@@ -1383,6 +1585,7 @@ function PlantsView(
                 capacity_kw: capacity ? Number(capacity) : null,
                 commissioned_on: commissionedOn || null,
                 timezone: backendConfig.displayTimezone,
+                metadata,
               })
               .select('id')
               .single();
@@ -1463,7 +1666,7 @@ function PlantsView(
               required
             />
           </Field>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             {!props.requesterMode && (
               <Field label="관리 코드">
                 <Input
@@ -1490,6 +1693,36 @@ function PlantsView(
             <Input
               value={address}
               onChange={(e) => setAddress(e.target.value)}
+              disabled={!props.canWrite}
+            />
+          </Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="운영 형태">
+              <select
+                className="h-10 w-full rounded-lg border bg-white px-3 text-sm"
+                value={operatorType}
+                onChange={(event) => setOperatorType(event.target.value)}
+                disabled={!props.canWrite}
+              >
+                <option value="개인">개인</option>
+                <option value="법인">법인</option>
+                <option value="협동조합">협동조합</option>
+                <option value="공공">공공</option>
+                <option value="기타">기타</option>
+              </select>
+            </Field>
+            <Field label="모듈 모델" hint="알면 입력">
+              <Input
+                value={moduleModel}
+                onChange={(event) => setModuleModel(event.target.value)}
+                disabled={!props.canWrite}
+              />
+            </Field>
+          </div>
+          <Field label="인버터 모델" hint="알면 입력">
+            <Input
+              value={inverterModel}
+              onChange={(event) => setInverterModel(event.target.value)}
               disabled={!props.canWrite}
             />
           </Field>
@@ -1526,7 +1759,24 @@ function PlantsView(
               required={props.requesterMode}
             />
           </Field>
-          <Button className="w-full" disabled={!props.canWrite || busy}>
+          <label className="flex items-start gap-3 rounded-xl bg-teal-50 p-3 text-sm leading-6 text-teal-950">
+            <input
+              type="checkbox"
+              className="mt-1 size-5 shrink-0 accent-teal-600"
+              checked={dataUseConsent}
+              onChange={(event) => setDataUseConsent(event.target.checked)}
+              disabled={!props.canWrite || Boolean(editingId && dataUseConsent)}
+              required
+            />
+            <span>
+              점검 접수와 보고서 작성을 위해 발전소 정보와 업로드 자료를
+              처리하는 데 동의합니다.
+            </span>
+          </label>
+          <Button
+            className="w-full"
+            disabled={!props.canWrite || !dataUseConsent || busy}
+          >
             {busy ? <Loader2 className="animate-spin" /> : <Plus />}
             {editingId ? '변경 저장' : '발전소 등록'}
           </Button>
@@ -1555,6 +1805,19 @@ function PlantsView(
                       : `${Number(plant.capacity_kw).toLocaleString()} kW`}{' '}
                     · {plant.timezone}
                   </p>
+                  {(() => {
+                    const metadata = jsonRecord(plant.metadata);
+                    const equipment = [
+                      jsonText(metadata.operator_type),
+                      jsonText(metadata.module_model),
+                      jsonText(metadata.inverter_model),
+                    ]
+                      .filter(Boolean)
+                      .join(' · ');
+                    return equipment ? (
+                      <p className="mt-1 text-xs text-slate-500">{equipment}</p>
+                    ) : null;
+                  })()}
                 </div>
                 {props.canWrite && !props.requesterMode && (
                   <Button
@@ -1742,7 +2005,7 @@ function InspectionsView(
           </Field>
           {!props.requesterMode && (
             <>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="예정 일시">
                   <Input
                     type="datetime-local"
@@ -1894,6 +2157,37 @@ async function fileSha256(file: File) {
   ).join('');
 }
 
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+
+async function verifiedImageType(file: File) {
+  if (file.size > MAX_UPLOAD_BYTES) {
+    throw new Error('파일은 50MB 이하만 업로드할 수 있습니다.');
+  }
+  const header = new Uint8Array(await file.slice(0, 8).arrayBuffer());
+  if (header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) {
+    return { mimeType: 'image/jpeg', extension: 'jpg' };
+  }
+  if (
+    header[0] === 0x89 &&
+    header[1] === 0x50 &&
+    header[2] === 0x4e &&
+    header[3] === 0x47 &&
+    header[4] === 0x0d &&
+    header[5] === 0x0a &&
+    header[6] === 0x1a &&
+    header[7] === 0x0a
+  ) {
+    return { mimeType: 'image/png', extension: 'png' };
+  }
+  if (
+    (header[0] === 0x49 && header[1] === 0x49 && header[2] === 0x2a) ||
+    (header[0] === 0x4d && header[1] === 0x4d && header[3] === 0x2a)
+  ) {
+    return { mimeType: 'image/tiff', extension: 'tiff' };
+  }
+  throw new Error('파일 내용이 JPG, PNG 또는 TIFF 이미지 형식이 아닙니다.');
+}
+
 async function imageValues(file: File) {
   const bitmap = await createImageBitmap(file);
   const ratio = Math.min(1, 320 / bitmap.width, 300 / bitmap.height);
@@ -1940,18 +2234,13 @@ function FilesView(props: SharedProps & { canWrite: boolean }) {
     });
     let storagePath = '';
     try {
-      const extension =
-        selectedFile.name
-          .split('.')
-          .pop()
-          ?.replace(/[^a-zA-Z0-9]/g, '')
-          .toLowerCase() || 'bin';
-      storagePath = `${props.organizationId}/${effectiveInspectionId}/${crypto.randomUUID()}.${extension}`;
+      const verifiedType = await verifiedImageType(selectedFile);
+      storagePath = `${props.organizationId}/${effectiveInspectionId}/${crypto.randomUUID()}.${verifiedType.extension}`;
       const sha256 = await fileSha256(selectedFile);
       const { error: uploadError } = await props.supabase.storage
         .from('inspection-originals')
         .upload(storagePath, selectedFile, {
-          contentType: selectedFile.type || 'application/octet-stream',
+          contentType: verifiedType.mimeType,
           upsert: false,
         });
       if (uploadError) throw uploadError;
@@ -1964,7 +2253,7 @@ function FilesView(props: SharedProps & { canWrite: boolean }) {
           storage_bucket: 'inspection-originals',
           storage_path: storagePath,
           original_name: selectedFile.name,
-          mime_type: selectedFile.type || null,
+          mime_type: verifiedType.mimeType,
           bytes: selectedFile.size,
           sha256,
           captured_at: selectedFile.lastModified
@@ -1987,7 +2276,7 @@ function FilesView(props: SharedProps & { canWrite: boolean }) {
       if (
         runAnalysis &&
         kind === 'thermal_original' &&
-        ['image/jpeg', 'image/png'].includes(selectedFile.type)
+        ['image/jpeg', 'image/png'].includes(verifiedType.mimeType)
       ) {
         props.setNotice({
           tone: 'info',
@@ -1996,7 +2285,10 @@ function FilesView(props: SharedProps & { canWrite: boolean }) {
         const pixels = await imageValues(selectedFile);
         const response = await fetch('/api/thermal/analyze', {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: {
+            'content-type': 'application/json',
+            authorization: `Bearer ${props.session.access_token}`,
+          },
           body: JSON.stringify({ ...pixels, sensitivity: 72 }),
         });
         const analysis = (await response.json()) as AnalysisResult & {
@@ -2193,7 +2485,7 @@ function FilesView(props: SharedProps & { canWrite: boolean }) {
                   <p className="mt-2 truncate text-xs text-slate-500">
                     {inspectionLabel(file.inspection_id)}
                   </p>
-                  <p className="mt-1 font-mono text-[10px] text-slate-400">
+                  <p className="mt-1 break-all font-mono text-xs text-slate-400">
                     SHA-256 {file.sha256?.slice(0, 18)}… ·{' '}
                     {file.bytes
                       ? `${Math.round(file.bytes / 1024).toLocaleString()} KB`
@@ -2295,7 +2587,7 @@ function FindingsView(props: SharedProps & { canWrite: boolean }) {
               </p>
             )}
             {finding.disposition === 'pending' && (
-              <div className="mt-5 grid grid-cols-2 gap-2">
+              <div className="mt-5 grid gap-2 sm:grid-cols-2">
                 <Button
                   size="sm"
                   disabled={!props.canWrite}
@@ -2614,7 +2906,7 @@ function MaintenanceView(props: SharedProps & { canWrite: boolean }) {
               required
             />
           </Field>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <Field label="우선순위">
               <select
                 className="h-9 w-full rounded-lg border bg-white px-3 text-sm"
@@ -2706,10 +2998,37 @@ function PartnerQuotesView(
   const [serviceRegions, setServiceRegions] = useState('경기');
   const [rating, setRating] = useState('');
   const [busy, setBusy] = useState(false);
+  const [quotePlantId, setQuotePlantId] = useState('');
+  const [quoteRequesterId, setQuoteRequesterId] = useState('');
+  const [quoteInspectionId, setQuoteInspectionId] = useState('');
+  const [quoteMaintenanceId, setQuoteMaintenanceId] = useState('');
+  const [quoteTitle, setQuoteTitle] = useState(
+    '태양광 설비 유지보수 견적 요청',
+  );
+  const [quoteScope, setQuoteScope] = useState('');
+  const [quoteDueAt, setQuoteDueAt] = useState('');
+  const [commissionRate, setCommissionRate] = useState('0');
+  const [selectedPartnerIds, setSelectedPartnerIds] = useState<string[]>([]);
+  const [requestBusy, setRequestBusy] = useState(false);
+  const [savingQuoteId, setSavingQuoteId] = useState<string | null>(null);
   const [selectingQuoteId, setSelectingQuoteId] = useState<string | null>(null);
 
   const partnerById = Object.fromEntries(
     props.partners.map((partner) => [partner.id, partner]),
+  );
+  const activePartners = props.partners.filter(
+    (partner) => partner.status === 'active',
+  );
+  const linkedRequesters = props.plantRequesters.filter(
+    (access) => access.plant_id === quotePlantId,
+  );
+  const linkedInspections = props.inspections.filter(
+    (inspection) => inspection.plant_id === quotePlantId,
+  );
+  const linkedMaintenance = props.maintenance.filter((maintenance) =>
+    linkedInspections.some(
+      (inspection) => inspection.id === maintenance.inspection_id,
+    ),
   );
 
   async function createPartner(event: SyntheticEvent<HTMLFormElement>) {
@@ -2740,6 +3059,96 @@ function PartnerQuotesView(
       props.setNotice({ tone: 'error', text: errorMessage(error) });
     } finally {
       setBusy(false);
+    }
+  }
+
+  function togglePartner(partnerId: string) {
+    setSelectedPartnerIds((current) =>
+      current.includes(partnerId)
+        ? current.filter((id) => id !== partnerId)
+        : current.length < 3
+          ? [...current, partnerId]
+          : current,
+    );
+  }
+
+  async function createQuoteRequest(event: SyntheticEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (selectedPartnerIds.length !== 3) {
+      props.setNotice({
+        tone: 'error',
+        text: '견적을 받을 업체 3곳을 선택하세요.',
+      });
+      return;
+    }
+    setRequestBusy(true);
+    props.setNotice(null);
+    try {
+      const { error } = await props.supabase.rpc(
+        'create_quote_request_with_partners',
+        {
+          p_plant_id: quotePlantId,
+          p_requester_user_id: quoteRequesterId,
+          p_title: quoteTitle.trim(),
+          p_scope_summary: quoteScope.trim(),
+          p_response_due_at: quoteDueAt
+            ? new Date(quoteDueAt).toISOString()
+            : null,
+          p_partner_ids: selectedPartnerIds,
+          p_inspection_id: quoteInspectionId || null,
+          p_maintenance_request_id: quoteMaintenanceId || null,
+          p_commission_rate: Number(commissionRate || 0),
+        },
+      );
+      if (error) throw error;
+      props.setNotice({
+        tone: 'success',
+        text: '견적 요청을 만들고 업체 3곳을 연결했습니다.',
+      });
+      setQuoteScope('');
+      setQuoteDueAt('');
+      setSelectedPartnerIds([]);
+      await props.refresh();
+    } catch (error) {
+      props.setNotice({ tone: 'error', text: errorMessage(error) });
+    } finally {
+      setRequestBusy(false);
+    }
+  }
+
+  async function saveQuote(
+    event: SyntheticEvent<HTMLFormElement>,
+    quoteId: string,
+  ) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const days = formText(form, 'estimated_days').trim();
+    setSavingQuoteId(quoteId);
+    props.setNotice(null);
+    try {
+      const { error } = await props.supabase.rpc(
+        'record_partner_quote_response',
+        {
+          p_quote_id: quoteId,
+          p_amount_krw: Number(formText(form, 'amount_krw')),
+          p_estimated_days: days ? Number(days) : null,
+          p_proposed_start_on: formText(form, 'proposed_start_on') || null,
+          p_valid_until: formText(form, 'valid_until') || null,
+          p_scope: formText(form, 'scope'),
+          p_conditions: formText(form, 'conditions'),
+          p_commission_rate: Number(formText(form, 'commission_rate') || 0),
+        },
+      );
+      if (error) throw error;
+      props.setNotice({
+        tone: 'success',
+        text: '업체 견적 회신을 저장했습니다.',
+      });
+      await props.refresh();
+    } catch (error) {
+      props.setNotice({ tone: 'error', text: errorMessage(error) });
+    } finally {
+      setSavingQuoteId(null);
     }
   }
 
@@ -2942,15 +3351,199 @@ function PartnerQuotesView(
               업체 등록
             </Button>
           </form>
-          <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5 text-sky-950">
-            <Handshake className="size-5" />
-            <h2 className="mt-3 font-bold">업체 포털 확장 자리</h2>
-            <p className="mt-2 text-xs leading-5 text-sky-800">
-              현재 업체는 로그인하지 않습니다. 업체 담당자 계정 연결과 암호화된
-              일회용 견적 제출 토큰 구조만 준비했으며, 2차 개발 때 권한을 열 수
-              있습니다.
-            </p>
-          </div>
+          <form
+            onSubmit={createQuoteRequest}
+            className="space-y-4 rounded-2xl border bg-white p-5 shadow-sm"
+          >
+            <div>
+              <h2 className="font-bold">새 견적 요청</h2>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                의뢰인과 업체 3곳을 연결하면 요청과 회신 대기 건이 한 번에
+                생성됩니다.
+              </p>
+            </div>
+            <Field label="발전소">
+              <select
+                className="h-10 w-full rounded-lg border bg-white px-3 text-sm"
+                value={quotePlantId}
+                onChange={(event) => {
+                  const nextPlantId = event.target.value;
+                  setQuotePlantId(nextPlantId);
+                  setQuoteRequesterId(
+                    props.plantRequesters.find(
+                      (access) => access.plant_id === nextPlantId,
+                    )?.requester_user_id ?? '',
+                  );
+                  setQuoteInspectionId('');
+                  setQuoteMaintenanceId('');
+                }}
+                required
+              >
+                <option value="">발전소 선택</option>
+                {props.plants.map((plant) => (
+                  <option key={plant.id} value={plant.id}>
+                    {plant.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="의뢰인">
+              <select
+                className="h-10 w-full rounded-lg border bg-white px-3 text-sm"
+                value={quoteRequesterId}
+                onChange={(event) => setQuoteRequesterId(event.target.value)}
+                disabled={!quotePlantId}
+                required
+              >
+                <option value="">연결 의뢰인 선택</option>
+                {linkedRequesters.map((access) => (
+                  <option
+                    key={access.requester_user_id}
+                    value={access.requester_user_id}
+                  >
+                    {props.profiles[access.requester_user_id]?.display_name ||
+                      props.profiles[access.requester_user_id]?.email ||
+                      access.requester_user_id}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            {quotePlantId && linkedRequesters.length === 0 && (
+              <p className="rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-800">
+                이 발전소에 의뢰인이 연결되지 않았습니다. 발전소 관리에서 먼저
+                의뢰인을 연결하세요.
+              </p>
+            )}
+            <Field label="연결 점검" hint="선택 사항">
+              <select
+                className="h-10 w-full rounded-lg border bg-white px-3 text-sm"
+                value={quoteInspectionId}
+                onChange={(event) => {
+                  setQuoteInspectionId(event.target.value);
+                  setQuoteMaintenanceId('');
+                }}
+                disabled={!quotePlantId}
+              >
+                <option value="">점검을 연결하지 않음</option>
+                {linkedInspections.map((inspection) => (
+                  <option key={inspection.id} value={inspection.id}>
+                    {inspection.inspection_code} ·{' '}
+                    {inspection.purpose || '점검'}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="연결 유지보수" hint="선택 사항">
+              <select
+                className="h-10 w-full rounded-lg border bg-white px-3 text-sm"
+                value={quoteMaintenanceId}
+                onChange={(event) => setQuoteMaintenanceId(event.target.value)}
+                disabled={!quoteInspectionId}
+              >
+                <option value="">유지보수 항목을 연결하지 않음</option>
+                {linkedMaintenance
+                  .filter(
+                    (maintenance) =>
+                      maintenance.inspection_id === quoteInspectionId,
+                  )
+                  .map((maintenance) => (
+                    <option key={maintenance.id} value={maintenance.id}>
+                      {maintenance.title}
+                    </option>
+                  ))}
+              </select>
+            </Field>
+            <Field label="요청 제목">
+              <Input
+                value={quoteTitle}
+                onChange={(event) => setQuoteTitle(event.target.value)}
+                maxLength={200}
+                required
+              />
+            </Field>
+            <Field label="작업 범위">
+              <Textarea
+                value={quoteScope}
+                onChange={(event) => setQuoteScope(event.target.value)}
+                rows={3}
+                placeholder="교체·보수할 항목과 현장 조건"
+              />
+            </Field>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="회신 마감">
+                <Input
+                  type="datetime-local"
+                  value={quoteDueAt}
+                  onChange={(event) => setQuoteDueAt(event.target.value)}
+                />
+              </Field>
+              <Field label="수수료율(%)">
+                <Input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  value={commissionRate}
+                  onChange={(event) => setCommissionRate(event.target.value)}
+                  required
+                />
+              </Field>
+            </div>
+            <fieldset>
+              <legend className="text-sm font-semibold text-slate-700">
+                요청 업체 3곳
+              </legend>
+              <div className="mt-2 space-y-2">
+                {activePartners.map((partner) => (
+                  <label
+                    key={partner.id}
+                    aria-label={`${partner.name} 선택`}
+                    className="flex min-h-11 items-center justify-between gap-3 rounded-xl border bg-slate-50 px-3 py-2 text-sm"
+                  >
+                    <span className="min-w-0">
+                      <strong className="block truncate">{partner.name}</strong>
+                      <span className="text-xs text-slate-500">
+                        {partnerTypeLabels[partner.partner_type] ||
+                          partner.partner_type}
+                      </span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      className="size-5 shrink-0 accent-teal-600"
+                      checked={selectedPartnerIds.includes(partner.id)}
+                      disabled={
+                        !selectedPartnerIds.includes(partner.id) &&
+                        selectedPartnerIds.length >= 3
+                      }
+                      onChange={() => togglePartner(partner.id)}
+                    />
+                  </label>
+                ))}
+                {activePartners.length < 3 && (
+                  <p className="rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-800">
+                    사용 중인 업체를 최소 3곳 등록해야 견적 요청을 만들 수
+                    있습니다.
+                  </p>
+                )}
+              </div>
+            </fieldset>
+            <Button
+              className="h-11 w-full"
+              disabled={
+                requestBusy ||
+                !quotePlantId ||
+                !quoteRequesterId ||
+                selectedPartnerIds.length !== 3
+              }
+            >
+              {requestBusy ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                <Handshake />
+              )}
+              업체 3곳에 요청 만들기
+            </Button>
+          </form>
         </div>
 
         <div className="space-y-5">
@@ -2963,7 +3556,7 @@ function PartnerQuotesView(
               {props.partners.map((partner) => (
                 <div
                   key={partner.id}
-                  className="flex items-center justify-between gap-4 p-5"
+                  className="flex flex-col items-start justify-between gap-3 p-5 sm:flex-row sm:items-center"
                 >
                   <div>
                     <strong className="text-sm">{partner.name}</strong>
@@ -3004,8 +3597,13 @@ function PartnerQuotesView(
                 const quotes = props.partnerQuotes.filter(
                   (quote) => quote.quote_request_id === request.id,
                 );
+                const requestLocked = [
+                  'selected',
+                  'completed',
+                  'cancelled',
+                ].includes(request.status);
                 return (
-                  <div key={request.id} className="p-5">
+                  <div key={request.id} className="p-4 sm:p-5">
                     <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
                       <div>
                         <strong className="text-sm">{request.title}</strong>
@@ -3030,17 +3628,148 @@ function PartnerQuotesView(
                           request.status}
                       </StatusPill>
                     </div>
+                    {request.scope_summary && (
+                      <p className="mt-3 rounded-xl bg-slate-50 p-3 text-sm leading-6 text-slate-600">
+                        {request.scope_summary}
+                      </p>
+                    )}
+                    <p className="mt-3 text-xs text-slate-500">
+                      회신 마감 {formatDateTime(request.response_due_at)}
+                    </p>
+                    <details className="mt-4 rounded-2xl border bg-slate-50">
+                      <summary className="cursor-pointer px-4 py-3 text-sm font-bold text-slate-700">
+                        업체별 견적 입력·수정
+                      </summary>
+                      <div className="space-y-3 border-t p-3 sm:p-4">
+                        {quotes.map((quote) => {
+                          const partner = partnerById[quote.partner_id];
+                          return (
+                            <form
+                              key={quote.id}
+                              className="space-y-3 rounded-xl border bg-white p-4"
+                              onSubmit={(event) =>
+                                void saveQuote(event, quote.id)
+                              }
+                            >
+                              <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+                                <div>
+                                  <strong className="text-sm">
+                                    {partner?.name || '업체 정보 확인 중'}
+                                  </strong>
+                                  <p className="mt-1 text-xs text-slate-500">
+                                    {partner
+                                      ? partnerTypeLabels[partner.partner_type]
+                                      : '업체'}{' '}
+                                    ·{' '}
+                                    {partnerQuoteStatusLabels[quote.status] ||
+                                      quote.status}
+                                  </p>
+                                </div>
+                                {quote.commission_amount_krw != null && (
+                                  <span className="text-xs font-semibold text-slate-500">
+                                    수수료{' '}
+                                    {formatWon(quote.commission_amount_krw)}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                                <Field label="견적 금액(원)">
+                                  <Input
+                                    name="amount_krw"
+                                    type="number"
+                                    min="0"
+                                    step="1"
+                                    defaultValue={quote.amount_krw ?? ''}
+                                    disabled={requestLocked}
+                                    required
+                                  />
+                                </Field>
+                                <Field label="예상 기간(일)">
+                                  <Input
+                                    name="estimated_days"
+                                    type="number"
+                                    min="1"
+                                    step="1"
+                                    defaultValue={quote.estimated_days ?? ''}
+                                    disabled={requestLocked}
+                                  />
+                                </Field>
+                                <Field label="수수료율(%)">
+                                  <Input
+                                    name="commission_rate"
+                                    type="number"
+                                    min="0"
+                                    max="100"
+                                    step="0.01"
+                                    defaultValue={quote.commission_rate}
+                                    disabled={requestLocked}
+                                    required
+                                  />
+                                </Field>
+                                <Field label="작업 시작 예정일">
+                                  <Input
+                                    name="proposed_start_on"
+                                    type="date"
+                                    defaultValue={quote.proposed_start_on ?? ''}
+                                    disabled={requestLocked}
+                                  />
+                                </Field>
+                                <Field label="견적 유효일">
+                                  <Input
+                                    name="valid_until"
+                                    type="date"
+                                    defaultValue={quote.valid_until ?? ''}
+                                    disabled={requestLocked}
+                                  />
+                                </Field>
+                              </div>
+                              <Field label="작업 내용">
+                                <Textarea
+                                  name="scope"
+                                  rows={2}
+                                  defaultValue={quote.scope ?? ''}
+                                  disabled={requestLocked}
+                                />
+                              </Field>
+                              <Field label="조건·제외 사항">
+                                <Textarea
+                                  name="conditions"
+                                  rows={2}
+                                  defaultValue={quote.conditions ?? ''}
+                                  disabled={requestLocked}
+                                />
+                              </Field>
+                              <Button
+                                type="submit"
+                                size="sm"
+                                className="w-full sm:w-auto"
+                                disabled={
+                                  requestLocked || savingQuoteId !== null
+                                }
+                              >
+                                {savingQuoteId === quote.id ? (
+                                  <Loader2 className="animate-spin" />
+                                ) : (
+                                  <CheckCircle2 />
+                                )}
+                                견적 회신 저장
+                              </Button>
+                            </form>
+                          );
+                        })}
+                      </div>
+                    </details>
                   </div>
                 );
               })}
               {props.quoteRequests.length === 0 && (
                 <div className="px-5 py-10 text-center">
                   <p className="text-sm font-semibold text-slate-600">
-                    견적 요청 데이터 구조가 준비됐습니다.
+                    진행 중인 견적 요청이 없습니다.
                   </p>
                   <p className="mt-2 text-xs leading-5 text-slate-400">
-                    다음 단계에서 유지보수 조치와 업체 3곳을 선택하는 관리자
-                    입력 화면을 연결하면 됩니다.
+                    왼쪽 양식에서 발전소·의뢰인·업체 3곳을 선택해 요청을
+                    시작하세요.
                   </p>
                 </div>
               )}
@@ -3225,7 +3954,7 @@ function MembersView(
               return (
                 <div
                   key={member.user_id}
-                  className="flex items-center justify-between gap-4 p-5"
+                  className="flex flex-col items-stretch justify-between gap-4 p-5 sm:flex-row sm:items-center"
                 >
                   <div>
                     <strong className="text-sm">
@@ -3235,9 +3964,9 @@ function MembersView(
                       {profile?.email || member.user_id}
                     </p>
                   </div>
-                  <div className="flex min-w-48 flex-col gap-2 sm:flex-row">
+                  <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-48 sm:flex-row">
                     <select
-                      className="h-9 rounded-lg border bg-white px-2 text-xs font-semibold"
+                      className="h-11 rounded-lg border bg-white px-3 text-sm font-semibold sm:h-9 sm:px-2 sm:text-xs"
                       value={member.role}
                       disabled={
                         !props.canWrite || busyMemberId === member.user_id
@@ -3252,7 +3981,7 @@ function MembersView(
                       <option value="owner">관리자</option>
                     </select>
                     <select
-                      className="h-9 rounded-lg border bg-white px-2 text-xs font-semibold"
+                      className="h-11 rounded-lg border bg-white px-3 text-sm font-semibold sm:h-9 sm:px-2 sm:text-xs"
                       value={member.status}
                       disabled={
                         !props.canWrite || busyMemberId === member.user_id
