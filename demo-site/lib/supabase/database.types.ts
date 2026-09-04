@@ -501,6 +501,232 @@ export type Database = {
         };
         Relationships: [];
       };
+      partner_private_details: {
+        Row: {
+          business_registration_number: string | null;
+          contact_email: string | null;
+          contact_name: string | null;
+          contact_phone: string | null;
+          created_at: string;
+          license_registration_number: string | null;
+          notes: string | null;
+          partner_id: string;
+          updated_at: string;
+        };
+        Insert: {
+          business_registration_number?: string | null;
+          contact_email?: string | null;
+          contact_name?: string | null;
+          contact_phone?: string | null;
+          created_at?: string;
+          license_registration_number?: string | null;
+          notes?: string | null;
+          partner_id: string;
+          updated_at?: string;
+        };
+        Update: {
+          business_registration_number?: string | null;
+          contact_email?: string | null;
+          contact_name?: string | null;
+          contact_phone?: string | null;
+          created_at?: string;
+          license_registration_number?: string | null;
+          notes?: string | null;
+          partner_id?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'partner_private_details_partner_id_fkey';
+            columns: ['partner_id'];
+            isOneToOne: true;
+            referencedRelation: 'partners';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      partner_quotes: {
+        Row: {
+          amount_krw: number | null;
+          commission_amount_krw: number | null;
+          commission_rate: number;
+          conditions: string | null;
+          created_at: string;
+          created_by: string | null;
+          estimated_days: number | null;
+          id: string;
+          organization_id: string;
+          partner_id: string;
+          proposed_start_on: string | null;
+          quote_request_id: string;
+          requested_at: string | null;
+          scope: string | null;
+          selected_at: string | null;
+          status: string;
+          submitted_at: string | null;
+          submitted_by: string | null;
+          updated_at: string;
+          valid_until: string | null;
+        };
+        Insert: {
+          amount_krw?: number | null;
+          commission_amount_krw?: number | null;
+          commission_rate?: number;
+          conditions?: string | null;
+          created_at?: string;
+          created_by?: string | null;
+          estimated_days?: number | null;
+          id?: string;
+          organization_id: string;
+          partner_id: string;
+          proposed_start_on?: string | null;
+          quote_request_id: string;
+          requested_at?: string | null;
+          scope?: string | null;
+          selected_at?: string | null;
+          status?: string;
+          submitted_at?: string | null;
+          submitted_by?: string | null;
+          updated_at?: string;
+          valid_until?: string | null;
+        };
+        Update: {
+          amount_krw?: number | null;
+          commission_amount_krw?: number | null;
+          commission_rate?: number;
+          conditions?: string | null;
+          created_at?: string;
+          created_by?: string | null;
+          estimated_days?: number | null;
+          id?: string;
+          organization_id?: string;
+          partner_id?: string;
+          proposed_start_on?: string | null;
+          quote_request_id?: string;
+          requested_at?: string | null;
+          scope?: string | null;
+          selected_at?: string | null;
+          status?: string;
+          submitted_at?: string | null;
+          submitted_by?: string | null;
+          updated_at?: string;
+          valid_until?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'partner_quotes_organization_id_fkey';
+            columns: ['organization_id'];
+            isOneToOne: false;
+            referencedRelation: 'organizations';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'partner_quotes_partner_id_fkey';
+            columns: ['partner_id'];
+            isOneToOne: false;
+            referencedRelation: 'partners';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'partner_quotes_quote_request_id_fkey';
+            columns: ['quote_request_id'];
+            isOneToOne: false;
+            referencedRelation: 'quote_requests';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      partner_users: {
+        Row: {
+          created_at: string;
+          invited_at: string | null;
+          invited_by: string | null;
+          joined_at: string | null;
+          partner_id: string;
+          status: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          invited_at?: string | null;
+          invited_by?: string | null;
+          joined_at?: string | null;
+          partner_id: string;
+          status?: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          invited_at?: string | null;
+          invited_by?: string | null;
+          joined_at?: string | null;
+          partner_id?: string;
+          status?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'partner_users_partner_id_fkey';
+            columns: ['partner_id'];
+            isOneToOne: false;
+            referencedRelation: 'partners';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      partners: {
+        Row: {
+          created_at: string;
+          created_by: string | null;
+          id: string;
+          name: string;
+          organization_id: string;
+          partner_type: string;
+          rating: number | null;
+          service_regions: string[];
+          status: string;
+          transaction_count: number;
+          updated_at: string;
+        };
+        Insert: {
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          name: string;
+          organization_id: string;
+          partner_type: string;
+          rating?: number | null;
+          service_regions?: string[];
+          status?: string;
+          transaction_count?: number;
+          updated_at?: string;
+        };
+        Update: {
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          name?: string;
+          organization_id?: string;
+          partner_type?: string;
+          rating?: number | null;
+          service_regions?: string[];
+          status?: string;
+          transaction_count?: number;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'partners_organization_id_fkey';
+            columns: ['organization_id'];
+            isOneToOne: false;
+            referencedRelation: 'organizations';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       plant_requesters: {
         Row: {
           created_at: string;
@@ -606,6 +832,132 @@ export type Database = {
           user_id?: string;
         };
         Relationships: [];
+      };
+      quote_request_findings: {
+        Row: {
+          created_at: string;
+          finding_id: string;
+          quote_request_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          finding_id: string;
+          quote_request_id: string;
+        };
+        Update: {
+          created_at?: string;
+          finding_id?: string;
+          quote_request_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'quote_request_findings_finding_id_fkey';
+            columns: ['finding_id'];
+            isOneToOne: false;
+            referencedRelation: 'findings';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'quote_request_findings_quote_request_id_fkey';
+            columns: ['quote_request_id'];
+            isOneToOne: false;
+            referencedRelation: 'quote_requests';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      quote_requests: {
+        Row: {
+          created_at: string;
+          id: string;
+          inspection_id: string | null;
+          maintenance_request_id: string | null;
+          organization_id: string;
+          plant_id: string;
+          request_code: string;
+          requested_at: string | null;
+          requested_by: string | null;
+          requester_user_id: string;
+          response_due_at: string | null;
+          scope_summary: string | null;
+          selected_quote_id: string | null;
+          status: string;
+          title: string;
+          updated_at: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          inspection_id?: string | null;
+          maintenance_request_id?: string | null;
+          organization_id: string;
+          plant_id: string;
+          request_code: string;
+          requested_at?: string | null;
+          requested_by?: string | null;
+          requester_user_id: string;
+          response_due_at?: string | null;
+          scope_summary?: string | null;
+          selected_quote_id?: string | null;
+          status?: string;
+          title: string;
+          updated_at?: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          inspection_id?: string | null;
+          maintenance_request_id?: string | null;
+          organization_id?: string;
+          plant_id?: string;
+          request_code?: string;
+          requested_at?: string | null;
+          requested_by?: string | null;
+          requester_user_id?: string;
+          response_due_at?: string | null;
+          scope_summary?: string | null;
+          selected_quote_id?: string | null;
+          status?: string;
+          title?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'quote_requests_inspection_id_fkey';
+            columns: ['inspection_id'];
+            isOneToOne: false;
+            referencedRelation: 'inspections';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'quote_requests_maintenance_request_id_fkey';
+            columns: ['maintenance_request_id'];
+            isOneToOne: false;
+            referencedRelation: 'maintenance_requests';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'quote_requests_organization_id_fkey';
+            columns: ['organization_id'];
+            isOneToOne: false;
+            referencedRelation: 'organizations';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'quote_requests_plant_id_fkey';
+            columns: ['plant_id'];
+            isOneToOne: false;
+            referencedRelation: 'plants';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'quote_requests_selected_quote_id_fkey';
+            columns: ['selected_quote_id'];
+            isOneToOne: false;
+            referencedRelation: 'partner_quotes';
+            referencedColumns: ['id'];
+          },
+        ];
       };
       reports: {
         Row: {
@@ -796,6 +1148,37 @@ export type Database = {
         SetofOptions: {
           from: '*';
           to: 'inspections';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      select_partner_quote: {
+        Args: { p_quote_id: string };
+        Returns: {
+          amount_krw: number | null;
+          commission_amount_krw: number | null;
+          commission_rate: number;
+          conditions: string | null;
+          created_at: string;
+          created_by: string | null;
+          estimated_days: number | null;
+          id: string;
+          organization_id: string;
+          partner_id: string;
+          proposed_start_on: string | null;
+          quote_request_id: string;
+          requested_at: string | null;
+          scope: string | null;
+          selected_at: string | null;
+          status: string;
+          submitted_at: string | null;
+          submitted_by: string | null;
+          updated_at: string;
+          valid_until: string | null;
+        };
+        SetofOptions: {
+          from: '*';
+          to: 'partner_quotes';
           isOneToOne: true;
           isSetofReturn: false;
         };

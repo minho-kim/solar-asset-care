@@ -20,6 +20,7 @@ import {
   FileCheck2,
   FileText,
   Gauge,
+  Handshake,
   ImageIcon,
   LayoutDashboard,
   Loader2,
@@ -48,6 +49,9 @@ type AnalysisRun = Tables<'analysis_runs'>;
 type Finding = Tables<'findings'>;
 type Report = Tables<'reports'>;
 type Maintenance = Tables<'maintenance_requests'>;
+type Partner = Tables<'partners'>;
+type PartnerQuote = Tables<'partner_quotes'>;
+type QuoteRequest = Tables<'quote_requests'>;
 type Membership = Tables<'organization_members'>;
 type Organization = Tables<'organizations'>;
 type Profile = Tables<'profiles'>;
@@ -65,6 +69,7 @@ type View =
   | 'findings'
   | 'reports'
   | 'maintenance'
+  | 'partners'
   | 'members';
 
 type Notice = { tone: 'success' | 'error' | 'info'; text: string } | null;
@@ -121,6 +126,25 @@ const maintenanceStatuses = [
   ['cancelled', '취소'],
 ] as const;
 
+const partnerTypeLabels: Record<string, string> = {
+  construction: '시공',
+  maintenance: '유지보수',
+  electrical: '전기공사',
+  cleaning: '청소·수목 정리',
+  dismantling: '철거',
+  recycling: '재활용',
+};
+
+const quoteRequestStatusLabels: Record<string, string> = {
+  draft: '작성 중',
+  requested: '견적 요청',
+  collecting: '회신 수집',
+  ready_for_selection: '선택 가능',
+  selected: '업체 선택',
+  completed: '완료',
+  cancelled: '취소',
+};
+
 const roleLabels: Record<string, string> = {
   owner: '관리자',
   expert: '전문가',
@@ -139,6 +163,7 @@ const navItems: Array<{
   { id: 'findings', label: '후보 판정', icon: ThermometerSun },
   { id: 'reports', label: '보고서', icon: FileText },
   { id: 'maintenance', label: '유지보수', icon: Wrench },
+  { id: 'partners', label: '업체·견적', icon: Handshake },
   { id: 'members', label: '관리자·사용자', icon: Users },
 ];
 
@@ -153,7 +178,14 @@ const roleViews: Record<string, View[]> = {
     'reports',
     'maintenance',
   ],
-  client: ['dashboard', 'plants', 'inspections', 'reports', 'maintenance'],
+  client: [
+    'dashboard',
+    'plants',
+    'inspections',
+    'reports',
+    'maintenance',
+    'partners',
+  ],
 };
 
 function errorMessage(error: unknown) {
@@ -171,6 +203,11 @@ function formatDateTime(value: string | null | undefined) {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(new Date(value));
+}
+
+function formatWon(value: number | null | undefined) {
+  if (value == null) return '금액 미입력';
+  return `${new Intl.NumberFormat('ko-KR').format(value)}원`;
 }
 
 function statusLabel(
@@ -711,6 +748,9 @@ function AdminConsole({
   const [findings, setFindings] = useState<Finding[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
   const [maintenance, setMaintenance] = useState<Maintenance[]>([]);
+  const [partners, setPartners] = useState<Partner[]>([]);
+  const [quoteRequests, setQuoteRequests] = useState<QuoteRequest[]>([]);
+  const [partnerQuotes, setPartnerQuotes] = useState<PartnerQuote[]>([]);
   const [members, setMembers] = useState<Membership[]>([]);
   const [profiles, setProfiles] = useState<Record<string, Profile>>({});
   const [loading, setLoading] = useState(true);
@@ -746,6 +786,9 @@ function AdminConsole({
         findingResult,
         reportResult,
         maintenanceResult,
+        partnerResult,
+        quoteRequestResult,
+        partnerQuoteResult,
         memberResult,
       ] = await Promise.all([
         scoped(
@@ -799,6 +842,27 @@ function AdminConsole({
         ),
         scoped(
           supabase
+            .from('partners')
+            .select('*')
+            .eq('organization_id', organizationId)
+            .order('name'),
+        ),
+        scoped(
+          supabase
+            .from('quote_requests')
+            .select('*')
+            .eq('organization_id', organizationId)
+            .order('created_at', { ascending: false }),
+        ),
+        scoped(
+          supabase
+            .from('partner_quotes')
+            .select('*')
+            .eq('organization_id', organizationId)
+            .order('created_at', { ascending: false }),
+        ),
+        scoped(
+          supabase
             .from('organization_members')
             .select('*')
             .eq('organization_id', organizationId)
@@ -813,6 +877,9 @@ function AdminConsole({
         findingResult,
         reportResult,
         maintenanceResult,
+        partnerResult,
+        quoteRequestResult,
+        partnerQuoteResult,
         memberResult,
       ];
       const failed = results.find((result) => result.error);
@@ -824,6 +891,9 @@ function AdminConsole({
       setFindings((findingResult.data ?? []) as Finding[]);
       setReports((reportResult.data ?? []) as Report[]);
       setMaintenance((maintenanceResult.data ?? []) as Maintenance[]);
+      setPartners((partnerResult.data ?? []) as Partner[]);
+      setQuoteRequests((quoteRequestResult.data ?? []) as QuoteRequest[]);
+      setPartnerQuotes((partnerQuoteResult.data ?? []) as PartnerQuote[]);
       const nextMembers = (memberResult.data ?? []) as Membership[];
       setMembers(nextMembers);
       if (nextMembers.length) {
@@ -864,6 +934,9 @@ function AdminConsole({
     findings,
     reports,
     maintenance,
+    partners,
+    quoteRequests,
+    partnerQuotes,
     members,
     profiles,
     refresh,
@@ -983,6 +1056,13 @@ function AdminConsole({
               {view === 'maintenance' && (
                 <MaintenanceView {...shared} canWrite={canMaintain} />
               )}
+              {view === 'partners' && (
+                <PartnerQuotesView
+                  {...shared}
+                  canWrite={isOwner}
+                  requesterMode={isRequester}
+                />
+              )}
               {view === 'members' && (
                 <MembersView
                   {...shared}
@@ -1010,6 +1090,9 @@ type SharedProps = {
   findings: Finding[];
   reports: Report[];
   maintenance: Maintenance[];
+  partners: Partner[];
+  quoteRequests: QuoteRequest[];
+  partnerQuotes: PartnerQuote[];
   members: Membership[];
   profiles: Record<string, Profile>;
   refresh: () => Promise<void>;
@@ -2610,6 +2693,360 @@ function MaintenanceView(props: SharedProps & { canWrite: boolean }) {
             />
           )}
         </section>
+      </div>
+    </>
+  );
+}
+
+function PartnerQuotesView(
+  props: SharedProps & { canWrite: boolean; requesterMode: boolean },
+) {
+  const [name, setName] = useState('');
+  const [partnerType, setPartnerType] = useState('maintenance');
+  const [serviceRegions, setServiceRegions] = useState('경기');
+  const [rating, setRating] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [selectingQuoteId, setSelectingQuoteId] = useState<string | null>(null);
+
+  const partnerById = Object.fromEntries(
+    props.partners.map((partner) => [partner.id, partner]),
+  );
+
+  async function createPartner(event: SyntheticEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    props.setNotice(null);
+    try {
+      const { error } = await props.supabase.from('partners').insert({
+        organization_id: props.organizationId,
+        name: name.trim(),
+        partner_type: partnerType,
+        service_regions: serviceRegions
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean),
+        rating: rating ? Number(rating) : null,
+        created_by: props.session.user.id,
+      });
+      if (error) throw error;
+      props.setNotice({
+        tone: 'success',
+        text: '업체를 등록했습니다. 연락처·면허 정보와 견적 요청은 이 업체에 이어서 연결할 수 있습니다.',
+      });
+      setName('');
+      setRating('');
+      await props.refresh();
+    } catch (error) {
+      props.setNotice({ tone: 'error', text: errorMessage(error) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function selectQuote(quoteId: string) {
+    setSelectingQuoteId(quoteId);
+    props.setNotice(null);
+    try {
+      const { error } = await props.supabase.rpc('select_partner_quote', {
+        p_quote_id: quoteId,
+      });
+      if (error) throw error;
+      props.setNotice({
+        tone: 'success',
+        text: '업체를 선택했습니다. 선택 기록은 관리자 화면과 감사기록에 함께 남습니다.',
+      });
+      await props.refresh();
+    } catch (error) {
+      props.setNotice({ tone: 'error', text: errorMessage(error) });
+    } finally {
+      setSelectingQuoteId(null);
+    }
+  }
+
+  if (props.requesterMode) {
+    return (
+      <>
+        <PageHeading
+          eyebrow="QUOTE COMPARISON"
+          title="업체 견적 비교·선택"
+          copy="관리자가 회신을 확인한 견적만 표시됩니다. 금액·예상 기간·업체 평점을 비교하고 한 곳을 선택할 수 있습니다."
+        />
+        <section className="space-y-5">
+          {props.quoteRequests.map((request) => {
+            const quotes = props.partnerQuotes.filter(
+              (quote) => quote.quote_request_id === request.id,
+            );
+            return (
+              <article
+                key={request.id}
+                className="rounded-2xl border bg-white p-5 shadow-sm"
+              >
+                <div className="flex flex-col justify-between gap-3 border-b pb-4 sm:flex-row sm:items-start">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <strong>{request.title}</strong>
+                      <StatusPill>
+                        {quoteRequestStatusLabels[request.status] ??
+                          request.status}
+                      </StatusPill>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">
+                      {request.scope_summary ||
+                        '관리자가 작업 범위를 확인 중입니다.'}
+                    </p>
+                  </div>
+                  <span className="text-xs text-slate-400">
+                    {request.request_code}
+                  </span>
+                </div>
+                {quotes.length > 0 ? (
+                  <div className="mt-4 grid gap-3 lg:grid-cols-3">
+                    {quotes.map((quote) => {
+                      const partner = partnerById[quote.partner_id];
+                      const selected = request.selected_quote_id === quote.id;
+                      return (
+                        <div
+                          key={quote.id}
+                          className={`rounded-2xl border p-4 ${
+                            selected
+                              ? 'border-teal-400 bg-teal-50'
+                              : 'bg-slate-50'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <strong className="text-sm">
+                                {partner?.name || '업체 정보 확인 중'}
+                              </strong>
+                              <p className="mt-1 text-xs text-slate-500">
+                                {partner
+                                  ? partnerTypeLabels[partner.partner_type]
+                                  : '업체'}{' '}
+                                · 평점 {partner?.rating ?? '신규'}
+                              </p>
+                            </div>
+                            {selected && <StatusPill>선택 완료</StatusPill>}
+                          </div>
+                          <strong className="mt-5 block text-xl text-slate-900">
+                            {formatWon(quote.amount_krw)}
+                          </strong>
+                          <p className="mt-1 text-xs text-slate-500">
+                            예상 기간{' '}
+                            {quote.estimated_days
+                              ? `${quote.estimated_days}일`
+                              : '협의'}
+                          </p>
+                          {quote.scope && (
+                            <p className="mt-3 line-clamp-3 text-xs leading-5 text-slate-600">
+                              {quote.scope}
+                            </p>
+                          )}
+                          <Button
+                            className="mt-4 w-full"
+                            size="sm"
+                            variant={selected ? 'outline' : 'default'}
+                            disabled={selected || selectingQuoteId !== null}
+                            onClick={() => void selectQuote(quote.id)}
+                          >
+                            {selectingQuoteId === quote.id ? (
+                              <Loader2 className="animate-spin" />
+                            ) : (
+                              <CheckCircle2 />
+                            )}
+                            {selected ? '선택한 업체' : '이 업체 선택'}
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-slate-500">
+                    업체 회신을 기다리고 있습니다. 제출이 완료된 견적만 이곳에
+                    표시됩니다.
+                  </p>
+                )}
+              </article>
+            );
+          })}
+          {props.quoteRequests.length === 0 && (
+            <EmptyState
+              icon={Handshake}
+              title="진행 중인 견적 요청이 없습니다"
+              copy="발행된 진단 결과에서 조치 항목을 정하면 관리자가 업체 3곳에 견적을 요청합니다."
+            />
+          )}
+        </section>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <PageHeading
+        eyebrow="PARTNER & QUOTE"
+        title="업체·견적 관리"
+        copy="업체 DB와 견적 요청·회신·의뢰인 선택·수수료를 한 흐름으로 연결할 수 있는 운영 틀입니다. 업체 포털은 별도 연결 구조로 분리했습니다."
+      />
+      <div className="grid gap-5 xl:grid-cols-[380px_1fr]">
+        <div className="space-y-5">
+          <form
+            onSubmit={createPartner}
+            className="space-y-4 rounded-2xl border bg-white p-5 shadow-sm"
+          >
+            <h2 className="font-bold">업체 기본정보 등록</h2>
+            {!props.canWrite && <ReadOnlyNote />}
+            <Field label="업체명">
+              <Input
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                disabled={!props.canWrite}
+                maxLength={160}
+                required
+              />
+            </Field>
+            <Field label="업체 유형">
+              <select
+                className="h-9 w-full rounded-lg border bg-white px-3 text-sm"
+                value={partnerType}
+                onChange={(event) => setPartnerType(event.target.value)}
+                disabled={!props.canWrite}
+              >
+                {Object.entries(partnerTypeLabels).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="가용 지역" hint="쉼표로 구분">
+              <Input
+                value={serviceRegions}
+                onChange={(event) => setServiceRegions(event.target.value)}
+                disabled={!props.canWrite}
+                placeholder="경기, 서울"
+              />
+            </Field>
+            <Field label="평점" hint="신규 업체는 비워둘 수 있습니다.">
+              <Input
+                type="number"
+                min="0"
+                max="5"
+                step="0.1"
+                value={rating}
+                onChange={(event) => setRating(event.target.value)}
+                disabled={!props.canWrite}
+              />
+            </Field>
+            <Button className="w-full" disabled={!props.canWrite || busy}>
+              {busy ? <Loader2 className="animate-spin" /> : <Plus />}
+              업체 등록
+            </Button>
+          </form>
+          <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5 text-sky-950">
+            <Handshake className="size-5" />
+            <h2 className="mt-3 font-bold">업체 포털 확장 자리</h2>
+            <p className="mt-2 text-xs leading-5 text-sky-800">
+              현재 업체는 로그인하지 않습니다. 업체 담당자 계정 연결과 암호화된
+              일회용 견적 제출 토큰 구조만 준비했으며, 2차 개발 때 권한을 열 수
+              있습니다.
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-5">
+          <section className="overflow-hidden rounded-2xl border bg-white shadow-sm">
+            <div className="flex items-center justify-between border-b px-5 py-4">
+              <h2 className="font-bold">등록 업체 {props.partners.length}곳</h2>
+              <span className="text-xs text-slate-400">관리자 전용</span>
+            </div>
+            <div className="divide-y">
+              {props.partners.map((partner) => (
+                <div
+                  key={partner.id}
+                  className="flex items-center justify-between gap-4 p-5"
+                >
+                  <div>
+                    <strong className="text-sm">{partner.name}</strong>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {partnerTypeLabels[partner.partner_type] ??
+                        partner.partner_type}{' '}
+                      · {partner.service_regions.join(', ') || '지역 미입력'}
+                    </p>
+                  </div>
+                  <StatusPill>
+                    {partner.status === 'active'
+                      ? `평점 ${partner.rating ?? '신규'}`
+                      : partner.status === 'inactive'
+                        ? '휴면'
+                        : '차단'}
+                  </StatusPill>
+                </div>
+              ))}
+              {props.partners.length === 0 && (
+                <p className="px-5 py-10 text-center text-sm text-slate-400">
+                  왼쪽에서 첫 업체를 등록하세요.
+                </p>
+              )}
+            </div>
+          </section>
+
+          <section className="overflow-hidden rounded-2xl border bg-white shadow-sm">
+            <div className="border-b px-5 py-4">
+              <h2 className="font-bold">
+                견적 요청 흐름 {props.quoteRequests.length}건
+              </h2>
+              <p className="mt-1 text-xs text-slate-500">
+                조치 항목 → 업체 3곳 요청 → 회신 → 의뢰인 선택 → 수수료 산정
+              </p>
+            </div>
+            <div className="divide-y">
+              {props.quoteRequests.map((request) => {
+                const quotes = props.partnerQuotes.filter(
+                  (quote) => quote.quote_request_id === request.id,
+                );
+                return (
+                  <div key={request.id} className="p-5">
+                    <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                      <div>
+                        <strong className="text-sm">{request.title}</strong>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {request.request_code} · 업체 {quotes.length}곳 연결 ·
+                          회신{' '}
+                          {
+                            quotes.filter((quote) =>
+                              [
+                                'submitted',
+                                'selected',
+                                'not_selected',
+                                'completed',
+                              ].includes(quote.status),
+                            ).length
+                          }
+                          건
+                        </p>
+                      </div>
+                      <StatusPill>
+                        {quoteRequestStatusLabels[request.status] ??
+                          request.status}
+                      </StatusPill>
+                    </div>
+                  </div>
+                );
+              })}
+              {props.quoteRequests.length === 0 && (
+                <div className="px-5 py-10 text-center">
+                  <p className="text-sm font-semibold text-slate-600">
+                    견적 요청 데이터 구조가 준비됐습니다.
+                  </p>
+                  <p className="mt-2 text-xs leading-5 text-slate-400">
+                    다음 단계에서 유지보수 조치와 업체 3곳을 선택하는 관리자
+                    입력 화면을 연결하면 됩니다.
+                  </p>
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
       </div>
     </>
   );

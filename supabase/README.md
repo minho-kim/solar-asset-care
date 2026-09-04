@@ -22,8 +22,10 @@ API 키는 이 디렉터리나 Git 저장소에 보관하지 않는다. 브라�
 7. `20260904123429_add_three_role_access_model.sql`
 8. `20260904123655_index_plant_requester_creator.sql`
 9. `20260904124028_harden_tenant_links_and_expert_writes.sql`
+10. `20260904132006_scaffold_partner_quote_workflow.sql`
+11. `20260904132507_split_quote_finding_policies.sql`
 
-현재 원격 프로젝트에는 위 아홉 변경이 적용돼 있다. SQL은 새 Supabase 프로젝트에
+현재 원격 프로젝트에는 위 열한 개 변경이 적용돼 있다. SQL은 새 Supabase 프로젝트에
 순서대로 적용할 수 있도록 저장했으며, 배포 대상이 결정되기 전까지 추가 공급자
 기능에 종속되는 코드는 만들지 않는다.
 
@@ -45,6 +47,16 @@ RLS 정책은 이 첫 구간과 로그인 사용자의 활성 조직 멤버십�
 4. 초대 링크를 완료하면 초대 대기 멤버십이 자동으로 활성화된다.
 
 역할 값은 관리자 `owner`, 전문가 `expert`, 의뢰인 `client` 세 개만 허용한다. 브라우저는 publishable key만 사용하며, 초대 함수는 배포 환경의 `SUPABASE_SECRET_KEYS`를 사용한다. 함수 의존성은 `@supabase/supabase-js@2.113.0`으로 고정하고 `deno.lock`을 함께 보관한다.
+
+## 업체·견적 확장 구조
+
+업체는 조직 내부 역할로 넣지 않고 별도 `partners` 데이터로 관리한다. MVP에서는
+관리자가 업체와 견적을 입력하고 의뢰인이 본인 발전소의 제출 견적만 비교·선택한다.
+업체 연락처·사업자·면허 정보는 공개 비교 정보와 분리해 관리자에게만 보인다.
+
+`partner_users`는 향후 업체 포털용 계정 연결 자리다. `private.partner_quote_access_tokens`는
+업체가 계정 없이 견적을 제출하는 일회용 링크를 위한 해시 저장 자리다. 두 기능 모두
+현재는 외부 접근을 열지 않았으며, 2차 개발에서 별도 인증·만료·재사용 방지 시험 후 활성화한다.
 
 개설 코드 원문은 Git이나 데이터베이스에 저장하지 않는다. 데이터베이스에는 SHA-256 해시와 사용·만료 시각만 남는다.
 
