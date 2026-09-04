@@ -71,7 +71,8 @@ type View =
   | 'reports'
   | 'maintenance'
   | 'partners'
-  | 'members';
+  | 'members'
+  | 'account';
 
 type Notice = { tone: 'success' | 'error' | 'info'; text: string } | null;
 
@@ -175,6 +176,7 @@ const navItems: Array<{
   { id: 'maintenance', label: '유지보수', icon: Wrench },
   { id: 'partners', label: '업체·견적', icon: Handshake },
   { id: 'members', label: '관리자·사용자', icon: Users },
+  { id: 'account', label: '내 계정', icon: KeyRound },
 ];
 
 const roleViews: Record<string, View[]> = {
@@ -187,6 +189,7 @@ const roleViews: Record<string, View[]> = {
     'findings',
     'reports',
     'maintenance',
+    'account',
   ],
   client: [
     'dashboard',
@@ -195,10 +198,23 @@ const roleViews: Record<string, View[]> = {
     'reports',
     'maintenance',
     'partners',
+    'account',
   ],
 };
 
 function errorMessage(error: unknown) {
+  if (typeof error === 'object' && error && 'code' in error) {
+    const authMessages: Record<string, string> = {
+      invalid_credentials: '이메일 또는 비밀번호를 확인해 주세요.',
+      email_not_confirmed: '이메일 인증을 완료한 뒤 로그인해 주세요.',
+      same_password: '현재 비밀번호와 다른 비밀번호를 입력해 주세요.',
+      weak_password:
+        '비밀번호가 너무 단순합니다. 다른 비밀번호를 입력해 주세요.',
+      over_request_rate_limit: '요청이 많습니다. 잠시 후 다시 시도해 주세요.',
+    };
+    const message = authMessages[String(error.code)];
+    if (message) return message;
+  }
   if (error instanceof Error) return error.message;
   if (typeof error === 'object' && error && 'message' in error) {
     return String(error.message);
@@ -255,6 +271,7 @@ function NoticeBar({ notice }: { notice: Notice }) {
   const Icon = notice.tone === 'error' ? AlertTriangle : CheckCircle2;
   return (
     <div
+      role={notice.tone === 'error' ? 'alert' : 'status'}
       className={`mb-5 flex items-start gap-2 rounded-xl border px-4 py-3 text-sm ${style}`}
     >
       <Icon className="mt-0.5 size-4 shrink-0" />
@@ -464,13 +481,17 @@ function AuthPanel({ supabase }: { supabase: SupabaseClient<Database> }) {
                   />
                 </Field>
               )}
-              <Button className="h-11 w-full" disabled={busy}>
+              <Button type="submit" className="h-11 w-full" disabled={busy}>
                 {busy && <Loader2 className="animate-spin" />}
-                {mode === 'signin'
-                  ? '로그인'
-                  : mode === 'signup'
-                    ? '가입 메일 받기'
-                    : '변경 메일 받기'}
+                {busy
+                  ? mode === 'signin'
+                    ? '로그인 중…'
+                    : '메일 발송 중…'
+                  : mode === 'signin'
+                    ? '로그인'
+                    : mode === 'signup'
+                      ? '가입 메일 받기'
+                      : '변경 메일 받기'}
                 {!busy && <ArrowRight />}
               </Button>
             </form>
@@ -508,9 +529,11 @@ function AuthPanel({ supabase }: { supabase: SupabaseClient<Database> }) {
 function UpdatePasswordPanel({
   supabase,
   onComplete,
+  embedded = false,
 }: {
   supabase: SupabaseClient<Database>;
-  onComplete: () => void;
+  onComplete?: () => void;
+  embedded?: boolean;
 }) {
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
@@ -528,8 +551,9 @@ function UpdatePasswordPanel({
     try {
       const { error } = await supabase.auth.updateUser({ password });
       if (error) throw error;
+      setPassword('');
+      setConfirmation('');
       setNotice({ tone: 'success', text: '비밀번호를 변경했습니다.' });
-      window.setTimeout(onComplete, 500);
     } catch (error) {
       setNotice({ tone: 'error', text: errorMessage(error) });
     } finally {
@@ -537,46 +561,63 @@ function UpdatePasswordPanel({
     }
   }
 
-  return (
+  const Heading = embedded ? 'h2' : 'h1';
+  const content = (
+    <section className="w-full max-w-md rounded-3xl border bg-white p-6 shadow-sm sm:p-8">
+      <span className="grid size-11 place-items-center rounded-2xl bg-teal-50 text-teal-700">
+        <KeyRound className="size-5" />
+      </span>
+      <Heading className="mt-5 text-2xl font-bold">비밀번호 변경</Heading>
+      <p className="mt-2 text-sm leading-6 text-slate-500">
+        다른 서비스에서 사용하지 않는 8자 이상의 비밀번호를 입력하세요.
+      </p>
+      <div className="mt-5">
+        <NoticeBar notice={notice} />
+      </div>
+      <form className="space-y-4" onSubmit={updatePassword}>
+        <Field label="새 비밀번호">
+          <Input
+            type="password"
+            autoComplete="new-password"
+            minLength={8}
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            required
+          />
+        </Field>
+        <Field label="새 비밀번호 확인">
+          <Input
+            type="password"
+            autoComplete="new-password"
+            minLength={8}
+            value={confirmation}
+            onChange={(event) => setConfirmation(event.target.value)}
+            required
+          />
+        </Field>
+        <Button type="submit" className="h-11 w-full" disabled={busy}>
+          {busy ? <Loader2 className="animate-spin" /> : <KeyRound />}
+          {busy ? '변경 중…' : '비밀번호 변경'}
+        </Button>
+      </form>
+      {onComplete && notice?.tone === 'success' && (
+        <Button
+          type="button"
+          variant="outline"
+          className="mt-3 h-11 w-full"
+          onClick={onComplete}
+        >
+          계속하기
+        </Button>
+      )}
+    </section>
+  );
+
+  return embedded ? (
+    content
+  ) : (
     <main className="grid min-h-screen place-items-center bg-[#eef3f5] px-4 py-8">
-      <section className="w-full max-w-md rounded-3xl border bg-white p-6 shadow-sm sm:p-8">
-        <span className="grid size-11 place-items-center rounded-2xl bg-teal-50 text-teal-700">
-          <KeyRound className="size-5" />
-        </span>
-        <h1 className="mt-5 text-2xl font-bold">새 비밀번호 설정</h1>
-        <p className="mt-2 text-sm leading-6 text-slate-500">
-          다른 서비스에서 사용하지 않는 8자 이상의 비밀번호를 입력하세요.
-        </p>
-        <div className="mt-5">
-          <NoticeBar notice={notice} />
-        </div>
-        <form className="space-y-4" onSubmit={updatePassword}>
-          <Field label="새 비밀번호">
-            <Input
-              type="password"
-              autoComplete="new-password"
-              minLength={8}
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              required
-            />
-          </Field>
-          <Field label="새 비밀번호 확인">
-            <Input
-              type="password"
-              autoComplete="new-password"
-              minLength={8}
-              value={confirmation}
-              onChange={(event) => setConfirmation(event.target.value)}
-              required
-            />
-          </Field>
-          <Button className="h-11 w-full" disabled={busy}>
-            {busy ? <Loader2 className="animate-spin" /> : <KeyRound />}
-            비밀번호 변경
-          </Button>
-        </form>
-      </section>
+      {content}
     </main>
   );
 }
@@ -801,7 +842,7 @@ function OrganizationOnboarding({
                     required
                   />
                 </Field>
-                <Button className="h-10 w-full" disabled={busy}>
+                <Button type="submit" className="h-10 w-full" disabled={busy}>
                   {busy ? (
                     <Loader2 className="animate-spin" />
                   ) : (
@@ -1130,6 +1171,24 @@ function AdminConsole({
             </div>
           ) : (
             <>
+              {view === 'account' && (
+                <>
+                  <PageHeading eyebrow="ACCOUNT" title="내 계정" />
+                  <dl className="mb-5 flex flex-wrap gap-x-8 gap-y-3 rounded-2xl border bg-white p-5 text-sm">
+                    <div>
+                      <dt className="text-slate-500">이메일</dt>
+                      <dd className="mt-1 break-all font-semibold">
+                        {session.user.email}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-500">역할</dt>
+                      <dd className="mt-1 font-semibold">{roleLabels[role]}</dd>
+                    </div>
+                  </dl>
+                  <UpdatePasswordPanel supabase={supabase} embedded />
+                </>
+              )}
               {view === 'dashboard' && (
                 <DashboardView {...shared} setView={setView} />
               )}
@@ -1706,6 +1765,7 @@ function PlantsView(
             </span>
           </label>
           <Button
+            type="submit"
             className="w-full"
             disabled={!props.canWrite || !dataUseConsent || busy}
           >
@@ -1983,6 +2043,7 @@ function InspectionsView(
             />
           </Field>
           <Button
+            type="submit"
             className="w-full"
             disabled={!props.canCreate || !effectivePlantId || busy}
           >
@@ -2419,6 +2480,7 @@ function FilesView(props: SharedProps & { canWrite: boolean }) {
             </label>
           )}
           <Button
+            type="submit"
             className="w-full"
             disabled={
               !props.canWrite || !effectiveInspectionId || !selectedFile || busy
@@ -2708,6 +2770,7 @@ function ReportsView(
               />
             </Field>
             <Button
+              type="submit"
               className="w-full"
               disabled={!effectiveInspectionId || busy}
             >
@@ -2992,6 +3055,7 @@ function MaintenanceView(props: SharedProps & { canWrite: boolean }) {
             </Field>
           </div>
           <Button
+            type="submit"
             className="w-full"
             disabled={!props.canWrite || !effectiveInspectionId || busy}
           >
@@ -3409,7 +3473,11 @@ function PartnerQuotesView(
                 disabled={!props.canWrite}
               />
             </Field>
-            <Button className="w-full" disabled={!props.canWrite || busy}>
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={!props.canWrite || busy}
+            >
               {busy ? <Loader2 className="animate-spin" /> : <Plus />}
               업체 등록
             </Button>
@@ -3591,6 +3659,7 @@ function PartnerQuotesView(
               </div>
             </fieldset>
             <Button
+              type="submit"
               className="h-11 w-full"
               disabled={
                 requestBusy ||
@@ -3977,7 +4046,11 @@ function MembersView(
                 <option value="owner">관리자</option>
               </select>
             </Field>
-            <Button className="w-full" disabled={!props.canWrite || busy}>
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={!props.canWrite || busy}
+            >
               {busy ? <Loader2 className="animate-spin" /> : <Users />}초대 메일
               보내기
             </Button>
@@ -3999,6 +4072,7 @@ function MembersView(
               <Input value={props.workspace.organization.slug} disabled />
             </Field>
             <Button
+              type="submit"
               variant="outline"
               className="w-full"
               disabled={!props.canWrite}
