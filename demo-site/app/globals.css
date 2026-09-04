@@ -160,3 +160,42 @@ body {
 .status-amber { border-color: #f0d6a4; background: #fff8e8; color: #a55e08; }
 .status-blue { border-color: #cbdff5; background: #eff7ff; color: #2d6fa8; }
 .status-green { border-color: #c6e4d4; background: #eef9f3; color: #19734e; }
+
+@page {
+  size: A4;
+  margin: 14mm;
+}
+
+@media print {
+  .report-actions {
+    display: none !important;
+  }
+
+  .report-sheet {
+    font-size: 11pt;
+    line-height: 1.42;
+    color: #172033;
+  }
+
+  .report-sheet header {
+    padding-bottom: 9pt;
+  }
+
+  .report-sheet .report-meta,
+  .report-sheet .report-section {
+    padding-top: 9pt;
+    padding-bottom: 9pt;
+    break-inside: avoid;
+  }
+
+  .report-sheet .report-thermal-image {
+    height: 36mm;
+    aspect-ratio: auto;
+  }
+
+  .report-sheet .report-footer {
+    margin-top: 6pt;
+    padding-top: 8pt;
+    break-inside: avoid;
+  }
+}
