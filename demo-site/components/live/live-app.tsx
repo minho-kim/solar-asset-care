@@ -519,6 +519,17 @@ function AuthPanel({ supabase }: { supabase: SupabaseClient<Database> }) {
                 {!busy && <ArrowRight />}
               </Button>
             </form>
+            <Link
+              href="/guest"
+              prefetch={false}
+              className={buttonVariants({
+                variant: 'outline',
+                className: 'mt-4 min-h-11 w-full',
+              })}
+            >
+              게스트로 둘러보기
+              <ArrowRight aria-hidden="true" />
+            </Link>
             <div className="mt-5 flex flex-col items-center gap-3 text-sm">
               <button
                 className="text-slate-600 hover:text-teal-700"
