@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   ArrowLeft,
+  Download,
   Loader2,
   Printer,
   ShieldCheck,
@@ -13,6 +14,14 @@ import {
 import { Button } from '@/components/ui/button';
 import { getSupabaseBrowserClient } from '@/lib/supabase/client';
 import type { Tables } from '@/lib/supabase/database.types';
+import { AssessmentSummary } from './live-assessments';
+import type {
+  AssessmentResult,
+  CalculationInput,
+  Capture,
+} from '@/lib/operational-assessment';
+import { defectLabels, kindLabels, severityLabels } from '@/lib/finding-labels';
+import { requestReportPdf } from '@/lib/report-download';
 
 type Report = Tables<'reports'>;
 type Inspection = Tables<'inspections'>;
@@ -23,12 +32,18 @@ type Maintenance = Tables<'maintenance_requests'>;
 
 type ReportData = {
   report: Report;
-  inspection: Inspection;
-  plant: Plant;
-  organization: Organization;
+  inspection: Pick<
+    Inspection,
+    'inspection_code' | 'purpose' | 'notes' | 'scheduled_at'
+  >;
+  plant: Pick<Plant, 'name' | 'address' | 'capacity_kw'>;
+  organization: Pick<Organization, 'name'>;
   findings: Finding[];
-  maintenance: Maintenance[];
+  maintenance: Pick<Maintenance, 'id' | 'title' | 'status'>[];
   fileCount: number;
+  assessment: Tables<'inspection_assessments'> | null;
+  settings: Tables<'calculation_settings'> | null;
+  snapshot: Tables<'report_snapshots'> | null;
 };
 
 function format(value: string | null) {
@@ -45,6 +60,25 @@ export function LiveReport({ reportId }: { reportId: string }) {
   const [data, setData] = useState<ReportData | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [downloading, setDownloading] = useState(false);
+  async function downloadPdf() {
+    if (!supabase || !data || downloading) return;
+    setDownloading(true);
+    setError('');
+    try {
+      const response = await requestReportPdf(supabase, reportId);
+      const url = URL.createObjectURL(await response.blob());
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `진단보고서-${data.report.version}차.pdf`;
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'PDF를 내려받지 못했습니다.');
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   useEffect(() => {
     async function load() {
@@ -66,6 +100,36 @@ export function LiveReport({ reportId }: { reportId: string }) {
           .eq('id', reportId)
           .single();
         if (reportError) throw reportError;
+        const { data: snapshot, error: snapshotError } = await supabase
+          .from('report_snapshots')
+          .select('*')
+          .eq('report_id', reportId)
+          .maybeSingle();
+        if (snapshotError) throw snapshotError;
+        if (snapshot) {
+          const content = snapshot.content as unknown as Omit<
+            ReportData,
+            'report' | 'fileCount' | 'snapshot'
+          > & { schemaVersion: number; title: string; files: unknown[] };
+          if (
+            content.schemaVersion !== 1 ||
+            !content.plant ||
+            !content.inspection ||
+            !Array.isArray(content.files)
+          )
+            throw new Error('지원하지 않는 보고서 보관 형식입니다.');
+          setData({
+            ...content,
+            report: { ...report, title: content.title },
+            fileCount: content.files.length,
+            snapshot,
+          });
+          return;
+        }
+        if (['approved', 'published', 'withdrawn'].includes(report.status))
+          throw new Error(
+            '검토 보관본이 없습니다. 관리자가 보고서를 다시 검토해야 합니다.',
+          );
         const [inspectionResult, findingResult, maintenanceResult, fileResult] =
           await Promise.all([
             supabase
@@ -107,6 +171,20 @@ export function LiveReport({ reportId }: { reportId: string }) {
         ]);
         if (plantResult.error) throw plantResult.error;
         if (organizationResult.error) throw organizationResult.error;
+        const { data: assessment, error: assessmentError } = await supabase
+          .from('inspection_assessments')
+          .select('*')
+          .eq('inspection_id', report.inspection_id)
+          .maybeSingle();
+        if (assessmentError) throw assessmentError;
+        const settingsResult = assessment
+          ? await supabase
+              .from('calculation_settings')
+              .select('*')
+              .eq('id', assessment.settings_id)
+              .single()
+          : null;
+        if (settingsResult?.error) throw settingsResult.error;
         setData({
           report,
           inspection,
@@ -115,6 +193,9 @@ export function LiveReport({ reportId }: { reportId: string }) {
           findings: findingResult.data ?? [],
           maintenance: maintenanceResult.data ?? [],
           fileCount: fileResult.count ?? 0,
+          assessment,
+          settings: settingsResult?.data ?? null,
+          snapshot: null,
         });
       } catch (reason) {
         setError(
@@ -156,9 +237,21 @@ export function LiveReport({ reportId }: { reportId: string }) {
     );
   }
 
-  const accepted = data.findings.filter(
-    (finding) => finding.disposition === 'accepted',
+  const accepted = data.findings.filter((finding) =>
+    ['accepted', 'modified'].includes(finding.disposition),
   );
+  const capture = data.assessment?.capture as Capture | undefined;
+  const input = data.assessment?.calculation_input as
+    | CalculationInput
+    | undefined;
+  const warnings = (data.assessment?.warnings ?? []) as string[];
+  const statusLabels: Record<string, string> = {
+    draft: '작성 중',
+    review: '검토 중',
+    approved: '승인',
+    published: '발행',
+    withdrawn: '회수',
+  };
   return (
     <main className="min-h-screen bg-slate-200 px-2 py-4 text-slate-900 sm:px-4 sm:py-8 print:bg-white print:p-0">
       <div className="report-actions mx-auto mb-4 flex max-w-[210mm] flex-col gap-2 sm:flex-row sm:justify-between">
@@ -168,11 +261,25 @@ export function LiveReport({ reportId }: { reportId: string }) {
             운영센터
           </Button>
         </Link>
-        <Button onClick={() => window.print()}>
+        {['published', 'withdrawn'].includes(data.report.status) && (
+          <Button disabled={downloading} onClick={() => void downloadPdf()}>
+            <Download />
+            {downloading ? '다운로드 중…' : '보관 PDF 다운로드'}
+          </Button>
+        )}
+        <Button variant="outline" onClick={() => window.print()}>
           <Printer />
           인쇄·PDF 저장
         </Button>
       </div>
+      {error && (
+        <p
+          role="alert"
+          className="report-actions mx-auto mb-4 max-w-[210mm] rounded-xl bg-rose-50 p-4 text-sm text-rose-700"
+        >
+          {error}
+        </p>
+      )}
       <article className="report-sheet mx-auto max-w-[210mm] bg-white p-5 shadow-xl sm:min-h-[297mm] sm:p-[16mm] print:min-h-0 print:max-w-none print:p-0 print:shadow-none">
         <header className="flex flex-col items-start justify-between gap-5 border-b-2 border-slate-900 pb-6 sm:flex-row">
           <div>
@@ -189,7 +296,9 @@ export function LiveReport({ reportId }: { reportId: string }) {
           </div>
           <div className="w-full rounded-xl border px-4 py-3 text-left sm:w-auto sm:text-right">
             <span className="block text-xs text-slate-500">상태</span>
-            <strong className="mt-1 block text-sm">{data.report.status}</strong>
+            <strong className="mt-1 block text-sm">
+              {statusLabels[data.report.status] ?? data.report.status}
+            </strong>
           </div>
         </header>
 
@@ -219,6 +328,61 @@ export function LiveReport({ reportId }: { reportId: string }) {
           </p>
         </ReportSection>
 
+        {capture && (
+          <ReportSection title="촬영조건·유효성">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <ReportItem
+                label="촬영·측정 시각"
+                value={format(capture.measuredAt)}
+              />
+              <ReportItem label="측정 장비·출처" value={capture.source} />
+              <ReportItem
+                label="면내 일사량"
+                value={`${capture.irradiance} W/m²`}
+              />
+              <ReportItem
+                label="풍속·외기온"
+                value={`${capture.wind} m/s · ${capture.ambientTemperature} ℃`}
+              />
+              <ReportItem
+                label="촬영각도·거리"
+                value={`${capture.angle}° (패널면 기준) · ${capture.distance} m`}
+              />
+              <ReportItem
+                label="적용 기준"
+                value={`${data.settings?.version}판 · ${data.settings?.effective_from}부터`}
+              />
+            </div>
+            {warnings.length > 0 ? (
+              <div className="mt-4 rounded-xl bg-amber-50 p-3 text-amber-900">
+                <p>{warnings.join(' · ')}</p>
+                <p>
+                  {data.assessment?.exception_approved_by
+                    ? `관리자 예외 승인: ${data.assessment.exception_reason}`
+                    : '촬영조건 미충족 · 검토 요청 불가'}
+                </p>
+              </div>
+            ) : (
+              <p className="mt-4">
+                입력된 촬영조건이 선택한 기준을 충족합니다.
+              </p>
+            )}
+          </ReportSection>
+        )}
+
+        {data.assessment && input && (
+          <ReportSection title="발전량·개선 효과 추정">
+            <p className="mb-4">
+              {input.periodStart} ~ {input.periodEnd} (양 끝 날짜 포함)
+              <br />
+              실발전량 출처: {input.generationSource}
+            </p>
+            <AssessmentSummary
+              result={data.assessment.result as AssessmentResult}
+            />
+          </ReportSection>
+        )}
+
         <ReportSection title="전문가 채택 소견">
           {accepted.length ? (
             <div className="overflow-x-auto">
@@ -227,6 +391,7 @@ export function LiveReport({ reportId }: { reportId: string }) {
                   <tr className="border-y bg-slate-50">
                     <th className="px-3 py-2">구분</th>
                     <th className="px-3 py-2">상대 점수</th>
+                    <th className="px-3 py-2">측정 온도·온도차</th>
                     <th className="px-3 py-2">판정 메모</th>
                   </tr>
                 </thead>
@@ -234,17 +399,30 @@ export function LiveReport({ reportId }: { reportId: string }) {
                   {accepted.map((finding) => (
                     <tr key={finding.id} className="border-b">
                       <td className="px-3 py-3">
-                        {finding.kind === 'hotspot'
-                          ? '고온 후보'
-                          : finding.kind === 'coldspot'
-                            ? '저온 후보'
-                            : finding.kind}
+                        {finding.defect_type
+                          ? defectLabels[finding.defect_type]
+                          : (kindLabels[finding.kind] ?? finding.kind)}
+                        <br />
+                        {finding.location_label} ·{' '}
+                        {severityLabels[finding.severity]}
                       </td>
                       <td className="px-3 py-3">
                         {finding.relative_heat_score ?? '—'}
                       </td>
                       <td className="px-3 py-3">
+                        {finding.temperature_max_c == null
+                          ? '미측정'
+                          : `${finding.temperature_max_c} ℃`}
+                        <br />
+                        {finding.temperature_delta_c == null
+                          ? '온도차 미측정'
+                          : `ΔT ${finding.temperature_delta_c} ℃`}
+                      </td>
+                      <td className="px-3 py-3">
                         {finding.expert_note || '채택'}
+                        {finding.measurement_source && (
+                          <p>온도 측정 근거: {finding.measurement_source}</p>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -285,6 +463,12 @@ export function LiveReport({ reportId }: { reportId: string }) {
           <span>생성 {format(data.report.created_at)}</span>
           <span>승인 {format(data.report.approved_at)}</span>
         </footer>
+        {data.snapshot && (
+          <p className="mt-3 break-all text-xs text-slate-500">
+            검토본 보관 {format(data.snapshot.frozen_at)} · 내용 확인값{' '}
+            {data.snapshot.sha256}
+          </p>
+        )}
       </article>
     </main>
   );

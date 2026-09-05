@@ -41,6 +41,9 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { backendConfig, getSupabaseBrowserClient } from '@/lib/supabase/client';
 import type { Database, Json, Tables } from '@/lib/supabase/database.types';
+import { AssessmentsView, CalculationSettingsView } from './live-assessments';
+import { FindingsEditorView } from './live-findings';
+import { requestReportPdf } from '@/lib/report-download';
 
 type Plant = Tables<'plants'>;
 type Inspection = Tables<'inspections'>;
@@ -68,6 +71,8 @@ type View =
   | 'inspections'
   | 'files'
   | 'findings'
+  | 'assessments'
+  | 'calculation-settings'
   | 'reports'
   | 'maintenance'
   | 'partners'
@@ -172,6 +177,8 @@ const navItems: Array<{
   { id: 'inspections', label: '점검', icon: ClipboardCheck },
   { id: 'files', label: '열화상 업로드', icon: UploadCloud },
   { id: 'findings', label: '후보 판정', icon: ThermometerSun },
+  { id: 'assessments', label: '촬영조건·발전량', icon: Gauge },
+  { id: 'calculation-settings', label: '계산·촬영 기준', icon: ClipboardCheck },
   { id: 'reports', label: '보고서', icon: FileText },
   { id: 'maintenance', label: '유지보수', icon: Wrench },
   { id: 'partners', label: '업체·견적', icon: Handshake },
@@ -187,6 +194,7 @@ const roleViews: Record<string, View[]> = {
     'inspections',
     'files',
     'findings',
+    'assessments',
     'reports',
     'maintenance',
     'account',
@@ -1212,7 +1220,13 @@ function AdminConsole({
                 <FilesView {...shared} canWrite={canUpload} />
               )}
               {view === 'findings' && (
-                <FindingsView {...shared} canWrite={canReview} />
+                <FindingsEditorView {...shared} canWrite={canReview} />
+              )}
+              {view === 'assessments' && (
+                <AssessmentsView {...shared} isOwner={isOwner} />
+              )}
+              {view === 'calculation-settings' && isOwner && (
+                <CalculationSettingsView {...shared} />
               )}
               {view === 'reports' && (
                 <ReportsView
@@ -2562,111 +2576,6 @@ function FilesView(props: SharedProps & { canWrite: boolean }) {
   );
 }
 
-function FindingsView(props: SharedProps & { canWrite: boolean }) {
-  async function decide(id: string, disposition: 'accepted' | 'rejected') {
-    const note =
-      disposition === 'accepted'
-        ? '전문가가 후보를 이상 소견으로 채택함'
-        : '전문가가 오탐 후보로 제외함';
-    const { error } = await props.supabase
-      .from('findings')
-      .update({
-        disposition,
-        expert_note: note,
-        reviewed_by: props.session.user.id,
-        reviewed_at: new Date().toISOString(),
-      })
-      .eq('id', id);
-    if (error) props.setNotice({ tone: 'error', text: errorMessage(error) });
-    else {
-      props.setNotice({
-        tone: 'success',
-        text:
-          disposition === 'accepted'
-            ? '이상 소견으로 채택했습니다.'
-            : '후보를 제외했습니다.',
-      });
-      await props.refresh();
-    }
-  }
-  const inspectionLabel = (id: string) =>
-    props.inspections.find((item) => item.id === id)?.inspection_code ?? '점검';
-  return (
-    <>
-      <PageHeading
-        eyebrow="HUMAN IN THE LOOP"
-        title="분석 후보·전문가 판정"
-        copy="시스템은 색상 분포에서 검토 후보만 만들며, 고장 확정과 보고서 반영 여부는 전문가가 결정합니다."
-      />
-      <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
-        <strong>중요:</strong> 방사율·촬영거리·반사온도·기상 조건과 온도
-        메타데이터가 없는 일반 이미지는 실제 온도 측정값으로 사용할 수 없습니다.
-      </div>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {props.findings.map((finding) => (
-          <article
-            key={finding.id}
-            className="rounded-2xl border bg-white p-5 shadow-sm"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <span
-                className={`grid size-10 place-items-center rounded-xl ${finding.kind === 'hotspot' ? 'bg-orange-50 text-orange-600' : 'bg-sky-50 text-sky-600'}`}
-              >
-                <ThermometerSun className="size-5" />
-              </span>
-              <StatusPill>
-                {finding.disposition === 'pending'
-                  ? '판정 대기'
-                  : finding.disposition === 'accepted'
-                    ? '채택'
-                    : '제외'}
-              </StatusPill>
-            </div>
-            <h2 className="mt-5 font-bold">
-              {finding.kind === 'hotspot' ? '고온 상대 후보' : '저온 상대 후보'}
-            </h2>
-            <p className="mt-2 text-sm text-slate-500">
-              {inspectionLabel(finding.inspection_id)} · 상대 점수{' '}
-              {finding.relative_heat_score ?? '—'}
-            </p>
-            {finding.expert_note && (
-              <p className="mt-3 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">
-                {finding.expert_note}
-              </p>
-            )}
-            {finding.disposition === 'pending' && (
-              <div className="mt-5 grid gap-2 sm:grid-cols-2">
-                <Button
-                  size="sm"
-                  disabled={!props.canWrite}
-                  onClick={() => void decide(finding.id, 'accepted')}
-                >
-                  이상 채택
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={!props.canWrite}
-                  onClick={() => void decide(finding.id, 'rejected')}
-                >
-                  오탐 제외
-                </Button>
-              </div>
-            )}
-          </article>
-        ))}
-      </div>
-      {props.findings.length === 0 && (
-        <EmptyState
-          icon={ThermometerSun}
-          title="분석 후보가 없습니다"
-          copy="열화상 JPG 또는 PNG를 업로드하면서 상대 분석을 실행하면 후보가 생성됩니다."
-        />
-      )}
-    </>
-  );
-}
-
 function ReportsView(
   props: SharedProps & {
     canCreate: boolean;
@@ -2708,6 +2617,8 @@ function ReportsView(
     setTransitioningId(report.id);
     props.setNotice(null);
     try {
+      if (status === 'published')
+        await requestReportPdf(props.supabase, report.id, true);
       const { error } = await props.supabase.rpc('transition_report_status', {
         p_report_id: report.id,
         p_next_status: status,

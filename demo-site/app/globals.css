@@ -221,6 +221,25 @@ body {
     font-size: max(11pt, 1em) !important;
   }
 
+  .report-sheet :is(dt, dd, strong, aside, footer, div) {
+    font-size: max(11pt, 1em) !important;
+  }
+
+  .report-sheet table {
+    min-width: 0 !important;
+    width: 100%;
+    table-layout: fixed;
+    overflow-wrap: anywhere;
+  }
+
+  .report-sheet tr {
+    break-inside: avoid;
+  }
+
+  .report-sheet thead {
+    display: table-header-group;
+  }
+
   .report-sheet header {
     padding-bottom: 9pt;
   }
@@ -229,7 +248,7 @@ body {
   .report-sheet .report-section {
     padding-top: 9pt;
     padding-bottom: 9pt;
-    break-inside: avoid;
+    break-inside: auto;
   }
 
   .report-sheet .report-thermal-image {

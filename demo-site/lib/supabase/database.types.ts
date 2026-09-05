@@ -124,15 +124,59 @@ export type Database = {
           },
         ];
       };
+      calculation_settings: {
+        Row: {
+          change_reason: string;
+          created_at: string;
+          created_by: string;
+          effective_from: string;
+          id: string;
+          organization_id: string;
+          values: Json;
+          version: number;
+        };
+        Insert: {
+          change_reason: string;
+          created_at?: string;
+          created_by: string;
+          effective_from: string;
+          id?: string;
+          organization_id: string;
+          values: Json;
+          version: number;
+        };
+        Update: {
+          change_reason?: string;
+          created_at?: string;
+          created_by?: string;
+          effective_from?: string;
+          id?: string;
+          organization_id?: string;
+          values?: Json;
+          version?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'calculation_settings_organization_id_fkey';
+            columns: ['organization_id'];
+            isOneToOne: false;
+            referencedRelation: 'organizations';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       findings: {
         Row: {
           analysis_run_id: string | null;
           created_at: string;
+          defect_type: string | null;
           disposition: string;
           expert_note: string | null;
           id: string;
           inspection_id: string;
           kind: string;
+          location_label: string | null;
+          measurement_source: string | null;
           organization_id: string;
           region: Json | null;
           relative_heat_score: number | null;
@@ -140,6 +184,7 @@ export type Database = {
           reviewed_by: string | null;
           severity: string;
           source: string;
+          source_file_id: string | null;
           temperature_delta_c: number | null;
           temperature_max_c: number | null;
           updated_at: string;
@@ -147,11 +192,14 @@ export type Database = {
         Insert: {
           analysis_run_id?: string | null;
           created_at?: string;
+          defect_type?: string | null;
           disposition?: string;
           expert_note?: string | null;
           id?: string;
           inspection_id: string;
           kind: string;
+          location_label?: string | null;
+          measurement_source?: string | null;
           organization_id: string;
           region?: Json | null;
           relative_heat_score?: number | null;
@@ -159,6 +207,7 @@ export type Database = {
           reviewed_by?: string | null;
           severity?: string;
           source: string;
+          source_file_id?: string | null;
           temperature_delta_c?: number | null;
           temperature_max_c?: number | null;
           updated_at?: string;
@@ -166,11 +215,14 @@ export type Database = {
         Update: {
           analysis_run_id?: string | null;
           created_at?: string;
+          defect_type?: string | null;
           disposition?: string;
           expert_note?: string | null;
           id?: string;
           inspection_id?: string;
           kind?: string;
+          location_label?: string | null;
+          measurement_source?: string | null;
           organization_id?: string;
           region?: Json | null;
           relative_heat_score?: number | null;
@@ -178,6 +230,7 @@ export type Database = {
           reviewed_by?: string | null;
           severity?: string;
           source?: string;
+          source_file_id?: string | null;
           temperature_delta_c?: number | null;
           temperature_max_c?: number | null;
           updated_at?: string;
@@ -202,6 +255,80 @@ export type Database = {
             columns: ['organization_id'];
             isOneToOne: false;
             referencedRelation: 'organizations';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'findings_source_file_id_fkey';
+            columns: ['source_file_id'];
+            isOneToOne: false;
+            referencedRelation: 'inspection_files';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      inspection_assessments: {
+        Row: {
+          calculation_input: Json;
+          capture: Json;
+          exception_approved_by: string | null;
+          exception_reason: string | null;
+          inspection_id: string;
+          organization_id: string;
+          result: Json;
+          revision: number;
+          settings_id: string;
+          updated_at: string;
+          updated_by: string;
+          warnings: Json;
+        };
+        Insert: {
+          calculation_input: Json;
+          capture: Json;
+          exception_approved_by?: string | null;
+          exception_reason?: string | null;
+          inspection_id: string;
+          organization_id: string;
+          result: Json;
+          revision: number;
+          settings_id: string;
+          updated_at?: string;
+          updated_by: string;
+          warnings: Json;
+        };
+        Update: {
+          calculation_input?: Json;
+          capture?: Json;
+          exception_approved_by?: string | null;
+          exception_reason?: string | null;
+          inspection_id?: string;
+          organization_id?: string;
+          result?: Json;
+          revision?: number;
+          settings_id?: string;
+          updated_at?: string;
+          updated_by?: string;
+          warnings?: Json;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'inspection_assessments_inspection_id_fkey';
+            columns: ['inspection_id'];
+            isOneToOne: true;
+            referencedRelation: 'inspections';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'inspection_assessments_organization_id_fkey';
+            columns: ['organization_id'];
+            isOneToOne: false;
+            referencedRelation: 'organizations';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'inspection_assessments_settings_id_fkey';
+            columns: ['settings_id'];
+            isOneToOne: false;
+            referencedRelation: 'calculation_settings';
             referencedColumns: ['id'];
           },
         ];
@@ -959,6 +1086,92 @@ export type Database = {
           },
         ];
       };
+      report_documents: {
+        Row: {
+          bytes: number;
+          created_at: string;
+          created_by: string;
+          pdf_sha256: string;
+          renderer_version: string;
+          report_id: string;
+          snapshot_sha256: string;
+          storage_path: string;
+        };
+        Insert: {
+          bytes: number;
+          created_at?: string;
+          created_by: string;
+          pdf_sha256: string;
+          renderer_version: string;
+          report_id: string;
+          snapshot_sha256: string;
+          storage_path: string;
+        };
+        Update: {
+          bytes?: number;
+          created_at?: string;
+          created_by?: string;
+          pdf_sha256?: string;
+          renderer_version?: string;
+          report_id?: string;
+          snapshot_sha256?: string;
+          storage_path?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'report_documents_report_id_fkey';
+            columns: ['report_id'];
+            isOneToOne: false;
+            referencedRelation: 'reports';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      report_snapshots: {
+        Row: {
+          content: Json;
+          frozen_at: string;
+          frozen_by: string;
+          organization_id: string;
+          report_id: string;
+          schema_version: number;
+          sha256: string;
+        };
+        Insert: {
+          content: Json;
+          frozen_at?: string;
+          frozen_by: string;
+          organization_id: string;
+          report_id: string;
+          schema_version?: number;
+          sha256: string;
+        };
+        Update: {
+          content?: Json;
+          frozen_at?: string;
+          frozen_by?: string;
+          organization_id?: string;
+          report_id?: string;
+          schema_version?: number;
+          sha256?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'report_snapshots_organization_id_fkey';
+            columns: ['organization_id'];
+            isOneToOne: false;
+            referencedRelation: 'organizations';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'report_snapshots_report_id_fkey';
+            columns: ['report_id'];
+            isOneToOne: true;
+            referencedRelation: 'reports';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       reports: {
         Row: {
           approved_at: string | null;
@@ -1067,6 +1280,31 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      archive_report_pdf: {
+        Args: {
+          p_bytes: number;
+          p_pdf_sha256: string;
+          p_renderer_version: string;
+          p_report_id: string;
+          p_snapshot_sha256: string;
+        };
+        Returns: {
+          bytes: number;
+          created_at: string;
+          created_by: string;
+          pdf_sha256: string;
+          renderer_version: string;
+          report_id: string;
+          snapshot_sha256: string;
+          storage_path: string;
+        };
+        SetofOptions: {
+          from: '*';
+          to: 'report_documents';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       assign_requester_to_plant: {
         Args: { p_plant_id: string; p_requester_user_id: string };
         Returns: {
@@ -1096,7 +1334,22 @@ export type Database = {
           p_regions: Json;
           p_result_summary: Json;
         };
-        Returns: Database['public']['Tables']['analysis_runs']['Row'];
+        Returns: {
+          algorithm_key: string;
+          algorithm_version: string;
+          created_at: string;
+          error_code: string | null;
+          finished_at: string | null;
+          id: string;
+          input_manifest: Json;
+          inspection_id: string;
+          organization_id: string;
+          requested_at: string;
+          requested_by: string | null;
+          result_summary: Json | null;
+          started_at: string | null;
+          status: string;
+        };
         SetofOptions: {
           from: '*';
           to: 'analysis_runs';
@@ -1116,7 +1369,24 @@ export type Database = {
           p_scope_summary: string;
           p_title: string;
         };
-        Returns: Database['public']['Tables']['quote_requests']['Row'];
+        Returns: {
+          created_at: string;
+          id: string;
+          inspection_id: string | null;
+          maintenance_request_id: string | null;
+          organization_id: string;
+          plant_id: string;
+          request_code: string;
+          requested_at: string | null;
+          requested_by: string | null;
+          requester_user_id: string;
+          response_due_at: string | null;
+          scope_summary: string | null;
+          selected_quote_id: string | null;
+          status: string;
+          title: string;
+          updated_at: string;
+        };
         SetofOptions: {
           from: '*';
           to: 'quote_requests';
@@ -1126,7 +1396,24 @@ export type Database = {
       };
       create_report_draft: {
         Args: { p_inspection_id: string; p_title: string };
-        Returns: Database['public']['Tables']['reports']['Row'];
+        Returns: {
+          approved_at: string | null;
+          approved_by: string | null;
+          change_reason: string | null;
+          created_at: string;
+          created_by: string | null;
+          id: string;
+          inspection_id: string;
+          organization_id: string;
+          published_at: string | null;
+          status: string;
+          storage_bucket: string | null;
+          storage_path: string | null;
+          title: string;
+          updated_at: string;
+          version: number;
+          withdrawn_at: string | null;
+        };
         SetofOptions: {
           from: '*';
           to: 'reports';
@@ -1172,7 +1459,19 @@ export type Database = {
           p_name: string;
           p_operator_type: string;
         };
-        Returns: Database['public']['Tables']['plants']['Row'];
+        Returns: {
+          address: string | null;
+          capacity_kw: number | null;
+          code: string | null;
+          commissioned_on: string | null;
+          created_at: string;
+          id: string;
+          metadata: Json;
+          name: string;
+          organization_id: string;
+          timezone: string;
+          updated_at: string;
+        };
         SetofOptions: {
           from: '*';
           to: 'plants';
@@ -1182,21 +1481,28 @@ export type Database = {
       };
       fail_relative_analysis: {
         Args: { p_analysis_run_id: string; p_message: string };
-        Returns: Database['public']['Tables']['analysis_runs']['Row'];
+        Returns: {
+          algorithm_key: string;
+          algorithm_version: string;
+          created_at: string;
+          error_code: string | null;
+          finished_at: string | null;
+          id: string;
+          input_manifest: Json;
+          inspection_id: string;
+          organization_id: string;
+          requested_at: string;
+          requested_by: string | null;
+          result_summary: Json | null;
+          started_at: string | null;
+          status: string;
+        };
         SetofOptions: {
           from: '*';
           to: 'analysis_runs';
           isOneToOne: true;
           isSetofReturn: false;
         };
-      };
-      register_requester: {
-        Args: never;
-        Returns: {
-          member_role: string;
-          organization_id: string;
-          organization_name: string;
-        }[];
       };
       record_partner_quote_response: {
         Args: {
@@ -1209,13 +1515,42 @@ export type Database = {
           p_scope: string;
           p_valid_until: string | null;
         };
-        Returns: Database['public']['Tables']['partner_quotes']['Row'];
+        Returns: {
+          amount_krw: number | null;
+          commission_amount_krw: number | null;
+          commission_rate: number;
+          conditions: string | null;
+          created_at: string;
+          created_by: string | null;
+          estimated_days: number | null;
+          id: string;
+          organization_id: string;
+          partner_id: string;
+          proposed_start_on: string | null;
+          quote_request_id: string;
+          requested_at: string | null;
+          scope: string | null;
+          selected_at: string | null;
+          status: string;
+          submitted_at: string | null;
+          submitted_by: string | null;
+          updated_at: string;
+          valid_until: string | null;
+        };
         SetofOptions: {
           from: '*';
           to: 'partner_quotes';
           isOneToOne: true;
           isSetofReturn: false;
         };
+      };
+      register_requester: {
+        Args: never;
+        Returns: {
+          member_role: string;
+          organization_id: string;
+          organization_name: string;
+        }[];
       };
       request_inspection: {
         Args: { p_notes: string; p_plant_id: string; p_purpose: string };
@@ -1244,29 +1579,56 @@ export type Database = {
           isSetofReturn: false;
         };
       };
-      start_relative_analysis: {
+      save_calculation_settings: {
         Args: {
-          p_inspection_file_id: string;
-          p_normalized_pixels: number;
+          p_effective_from: string;
+          p_organization_id: string;
+          p_reason: string;
+          p_values: Json;
         };
-        Returns: Database['public']['Tables']['analysis_runs']['Row'];
+        Returns: {
+          change_reason: string;
+          created_at: string;
+          created_by: string;
+          effective_from: string;
+          id: string;
+          organization_id: string;
+          values: Json;
+          version: number;
+        };
         SetofOptions: {
           from: '*';
-          to: 'analysis_runs';
+          to: 'calculation_settings';
           isOneToOne: true;
           isSetofReturn: false;
         };
       };
-      transition_report_status: {
+      save_inspection_assessment: {
         Args: {
-          p_next_status: string;
-          p_reason?: string | null;
-          p_report_id: string;
+          p_capture: Json;
+          p_exception_reason: string;
+          p_expected_revision: number;
+          p_input: Json;
+          p_inspection_id: string;
+          p_settings_id: string;
         };
-        Returns: Database['public']['Tables']['reports']['Row'];
+        Returns: {
+          calculation_input: Json;
+          capture: Json;
+          exception_approved_by: string | null;
+          exception_reason: string | null;
+          inspection_id: string;
+          organization_id: string;
+          result: Json;
+          revision: number;
+          settings_id: string;
+          updated_at: string;
+          updated_by: string;
+          warnings: Json;
+        };
         SetofOptions: {
           from: '*';
-          to: 'reports';
+          to: 'inspection_assessments';
           isOneToOne: true;
           isSetofReturn: false;
         };
@@ -1298,6 +1660,62 @@ export type Database = {
         SetofOptions: {
           from: '*';
           to: 'partner_quotes';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      start_relative_analysis: {
+        Args: { p_inspection_file_id: string; p_normalized_pixels: number };
+        Returns: {
+          algorithm_key: string;
+          algorithm_version: string;
+          created_at: string;
+          error_code: string | null;
+          finished_at: string | null;
+          id: string;
+          input_manifest: Json;
+          inspection_id: string;
+          organization_id: string;
+          requested_at: string;
+          requested_by: string | null;
+          result_summary: Json | null;
+          started_at: string | null;
+          status: string;
+        };
+        SetofOptions: {
+          from: '*';
+          to: 'analysis_runs';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      transition_report_status: {
+        Args: {
+          p_next_status: string;
+          p_reason?: string | null;
+          p_report_id: string;
+        };
+        Returns: {
+          approved_at: string | null;
+          approved_by: string | null;
+          change_reason: string | null;
+          created_at: string;
+          created_by: string | null;
+          id: string;
+          inspection_id: string;
+          organization_id: string;
+          published_at: string | null;
+          status: string;
+          storage_bucket: string | null;
+          storage_path: string | null;
+          title: string;
+          updated_at: string;
+          version: number;
+          withdrawn_at: string | null;
+        };
+        SetofOptions: {
+          from: '*';
+          to: 'reports';
           isOneToOne: true;
           isSetofReturn: false;
         };
