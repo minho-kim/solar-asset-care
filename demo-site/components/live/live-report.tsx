@@ -22,6 +22,8 @@ import type {
 } from '@/lib/operational-assessment';
 import { defectLabels, kindLabels, severityLabels } from '@/lib/finding-labels';
 import { requestReportPdf } from '@/lib/report-download';
+import { EconomicChart, ReportPhoto } from './report-visuals';
+import type { ReportImage } from '@/lib/report-visuals';
 
 type Report = Tables<'reports'>;
 type Inspection = Tables<'inspections'>;
@@ -44,6 +46,7 @@ type ReportData = {
   assessment: Tables<'inspection_assessments'> | null;
   settings: Tables<'calculation_settings'> | null;
   snapshot: Tables<'report_snapshots'> | null;
+  reportImages?: ReportImage[];
 };
 
 function format(value: string | null) {
@@ -380,6 +383,9 @@ export function LiveReport({ reportId }: { reportId: string }) {
             <AssessmentSummary
               result={data.assessment.result as AssessmentResult}
             />
+            <EconomicChart
+              result={data.assessment.result as AssessmentResult}
+            />
           </ReportSection>
         )}
 
@@ -396,9 +402,10 @@ export function LiveReport({ reportId }: { reportId: string }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {accepted.map((finding) => (
+                  {accepted.map((finding, index) => (
                     <tr key={finding.id} className="border-b">
                       <td className="px-3 py-3">
+                        {index + 1}.{' '}
                         {finding.defect_type
                           ? defectLabels[finding.defect_type]
                           : (kindLabels[finding.kind] ?? finding.kind)}
@@ -463,6 +470,21 @@ export function LiveReport({ reportId }: { reportId: string }) {
           <span>생성 {format(data.report.created_at)}</span>
           <span>승인 {format(data.report.approved_at)}</span>
         </footer>
+        {!!data.reportImages?.length && supabase && (
+          <ReportSection title="점검 사진·이상 위치">
+            <div className="space-y-6">
+              {data.reportImages.map((photo) => (
+                <ReportPhoto
+                  key={photo.id}
+                  client={supabase}
+                  photo={photo}
+                  reportId={reportId}
+                  findings={accepted}
+                />
+              ))}
+            </div>
+          </ReportSection>
+        )}
         {data.snapshot && (
           <p className="mt-3 break-all text-xs text-slate-500">
             검토본 보관 {format(data.snapshot.frozen_at)} · 내용 확인값{' '}

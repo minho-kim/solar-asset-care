@@ -6,6 +6,8 @@ import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
+import { testJpeg } from '../tests/fixtures/report-image.mjs';
+import ts from 'typescript';
 if (process.env.SOLAR_ACCEPTANCE_RUN !== '1')
   throw new Error(
     'Set SOLAR_ACCEPTANCE_RUN=1 to run the isolated remote acceptance test.',
@@ -101,14 +103,12 @@ async function org(owner) {
   );
   organizations.push(row.id);
   await required(
-    admin
-      .from('organization_members')
-      .insert({
-        organization_id: row.id,
-        user_id: owner.id,
-        role: 'owner',
-        status: 'active',
-      }),
+    admin.from('organization_members').insert({
+      organization_id: row.id,
+      user_id: owner.id,
+      role: 'owner',
+      status: 'active',
+    }),
   );
   return row;
 }
@@ -187,6 +187,153 @@ try {
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jWZkAAAAASUVORK5CYII=',
     'base64',
   );
+  const uploadModule = ts
+    .transpileModule(
+      readFileSync(
+        new URL('../lib/original-upload.ts', import.meta.url),
+        'utf8',
+      ),
+      {
+        compilerOptions: {
+          module: ts.ModuleKind.ESNext,
+          target: ts.ScriptTarget.ES2022,
+        },
+      },
+    )
+    .outputText.replace(
+      /from ['"]tus-js-client['"]/g,
+      `from '${import.meta.resolve('tus-js-client')}'`,
+    );
+  const { sendResumableOriginal, saveOriginal, ORIGINAL_CHUNK_BYTES } =
+    await import(
+      `data:text/javascript;base64,${Buffer.from(uploadModule).toString('base64')}`
+    );
+  // Synthetic transport-only bytes, not a representative camera original.
+  const large = Buffer.concat([
+    png,
+    Buffer.alloc(7 * 1024 * 1024 - png.length, 37),
+  ]);
+  large.size = large.length;
+  const resumedPath = `${organization.id}/${inspection.id}/${randomUUID()}.png`;
+  paths.push({ bucket: 'inspection-originals', path: resumedPath });
+  const remembered = new Map();
+  const urlStorage = {
+    async findAllUploads() {
+      return [...remembered.values()];
+    },
+    async findUploadsByFingerprint(fingerprint) {
+      return [...remembered.values()].filter(
+        (v) => v.fingerprint === fingerprint,
+      );
+    },
+    async addUpload(fingerprint, upload) {
+      const key = randomUUID();
+      remembered.set(key, { ...upload, fingerprint, urlStorageKey: key });
+      return key;
+    },
+    async removeUpload(key) {
+      remembered.delete(key);
+    },
+  };
+  const firstController = new AbortController();
+  let accepted = 0;
+  const transferOptions = {
+    file: large,
+    client: expert.client,
+    userId: expert.id,
+    projectUrl: env.NEXT_PUBLIC_SUPABASE_URL,
+    path: resumedPath,
+    checksum: digest(large),
+    mimeType: 'image/png',
+    urlStorage,
+    onProgress() {},
+  };
+  await assert.rejects(
+    () =>
+      sendResumableOriginal({
+        ...transferOptions,
+        signal: firstController.signal,
+        onChunkComplete(_size, total) {
+          accepted = total;
+          firstController.abort();
+        },
+      }),
+    { name: 'AbortError' },
+  );
+  check(
+    accepted === ORIGINAL_CHUNK_BYTES && remembered.size === 1,
+    'large upload pauses after acknowledged 6MB chunk',
+  );
+  const resumedChunks = [];
+  await sendResumableOriginal({
+    ...transferOptions,
+    signal: new AbortController().signal,
+    onChunkComplete(size) {
+      resumedChunks.push(size);
+    },
+  });
+  check(
+    resumedChunks.length === 1 &&
+      resumedChunks[0] === 1024 * 1024 &&
+      remembered.size === 0,
+    'new uploader resumes remaining 1MB and clears resume hint',
+  );
+  const resumedBytes = await required(
+    expert.client.storage.from('inspection-originals').download(resumedPath),
+  );
+  check(
+    digest(Buffer.from(await resumedBytes.arrayBuffer())) === digest(large),
+    'resumed file checksum equals all original 7MB',
+  );
+  // Exercise completed-object recovery and concurrent-safe row deduplication with actual app code.
+  const recoveryFile = new File([png], 'metadata-recovery.png', {
+    type: 'image/png',
+  });
+  const recoveryPath = `${organization.id}/${inspection.id}/visible_original-${digest(png)}.png`;
+  paths.push({ bucket: 'inspection-originals', path: recoveryPath });
+  await required(
+    expert.client.storage
+      .from('inspection-originals')
+      .upload(recoveryPath, png, { contentType: 'image/png' }),
+  );
+  const recoveryOptions = {
+    file: recoveryFile,
+    client: expert.client,
+    userId: expert.id,
+    projectUrl: env.NEXT_PUBLIC_SUPABASE_URL,
+    organizationId: organization.id,
+    inspectionId: inspection.id,
+    kind: 'visible_original',
+    signal: new AbortController().signal,
+    onProgress() {},
+  };
+  const recovered = await saveOriginal(recoveryOptions),
+    duplicate = await saveOriginal(recoveryOptions);
+  check(
+    recovered.id === duplicate.id && recovered.captured_at === null,
+    'finished-object retry registers once and does not invent a capture time',
+  );
+  check(
+    Boolean(
+      (
+        await expert.client.storage
+          .from('inspection-originals')
+          .upload(recoveryPath, png, { contentType: 'image/png', upsert: true })
+      ).error,
+    ),
+    'registered original overwrite denied',
+  );
+  check(
+    Boolean(
+      (
+        await expert.client
+          .from('inspection_files')
+          .update({ sha256: 'a'.repeat(64) })
+          .eq('id', recovered.id)
+      ).error,
+    ),
+    'registered original identity cannot be rewritten',
+  );
   const path = `${organization.id}/${inspection.id}/${randomUUID()}.png`;
   await required(
     expert.client.storage
@@ -218,6 +365,109 @@ try {
   check(
     digest(Buffer.from(await downloaded.arrayBuffer())) === digest(png),
     'original upload and byte integrity',
+  );
+  async function addPhoto(actor, id) {
+    const form = new FormData();
+    form.set('id', id);
+    form.set('sourceId', file.id);
+    form.set('caption', '가상 열화상 · 검은 영역은 가림 처리 시험');
+    form.set(
+      'masks',
+      JSON.stringify([{ x: 0.75, y: 0.78, width: 0.22, height: 0.17 }]),
+    );
+    form.set('image', new Blob([testJpeg], { type: 'image/jpeg' }), 'test.jpg');
+    return fetch(`${origin}/api/report-images`, {
+      method: 'POST',
+      body: form,
+      headers: { Authorization: `Bearer ${actor.token}` },
+    });
+  }
+  const imageId = randomUUID();
+  paths.push({
+    bucket: 'report-images',
+    path: `${organization.id}/${inspection.id}/${imageId}.jpg`,
+  });
+  check(
+    (await addPhoto(client, randomUUID())).status === 404,
+    'requester cannot prepare report images',
+  );
+  check(
+    (await addPhoto(otherOwner, randomUUID())).status === 404,
+    'other organization cannot prepare report images',
+  );
+  const imageResponse = await addPhoto(expert, imageId);
+  if (!imageResponse.ok) throw new Error(await imageResponse.text());
+  const photo = (await imageResponse.json()).image;
+  check((await addPhoto(expert, imageId)).ok, 'image save retry is idempotent');
+  const pendingId = randomUUID();
+  paths.push({
+    bucket: 'report-images',
+    path: `${organization.id}/${inspection.id}/${pendingId}.jpg`,
+  });
+  check(
+    (await addPhoto(expert, pendingId)).ok,
+    'unapproved image retained separately',
+  );
+  const viewPhoto = (actor, report = false, id = photo.id) =>
+    fetch(
+      `${origin}/api/report-images?id=${id}${report ? `&reportId=${reportId}` : ''}`,
+      { headers: actor ? { Authorization: `Bearer ${actor.token}` } : {} },
+    );
+  const approvedPreview = await viewPhoto(owner);
+  const imageBytes = Buffer.from(await approvedPreview.arrayBuffer());
+  check(
+    approvedPreview.ok &&
+      digest(imageBytes) === photo.sha256 &&
+      imageBytes.length < testJpeg.length,
+    'saved image preview verifies bytes and strips JPEG metadata',
+  );
+  check(
+    (await viewPhoto(client)).status === 404,
+    'requester cannot preview internal images',
+  );
+  check(
+    Boolean(
+      (
+        await expert.client.rpc('review_report_image', {
+          p_id: photo.id,
+          p_sha256: photo.sha256,
+          p_approve: true,
+        })
+      ).error,
+    ),
+    'expert cannot approve report image',
+  );
+  check(
+    Boolean(
+      (
+        await owner.client.rpc('review_report_image', {
+          p_id: photo.id,
+          p_sha256: '0'.repeat(64),
+          p_approve: true,
+        })
+      ).error,
+    ),
+    'review rejects stale image checksum',
+  );
+  await required(
+    owner.client.rpc('review_report_image', {
+      p_id: photo.id,
+      p_sha256: photo.sha256,
+      p_approve: true,
+    }),
+  );
+  check(
+    Boolean(
+      (
+        await owner.client.storage
+          .from('report-images')
+          .upload(photo.storage_path, imageBytes, {
+            contentType: 'image/jpeg',
+            upsert: true,
+          })
+      ).error,
+    ),
+    'approved image bytes cannot be overwritten',
   );
   const s = {
     sunHours: 3.6,
@@ -349,6 +599,15 @@ try {
       .single(),
   );
   const pdfPath = `${organization.id}/${inspection.id}/${reportId}/${snapshot.sha256}.pdf`;
+  check(
+    snapshot.content.reportImages.length === 1 &&
+      snapshot.content.reportImages[0].id === photo.id,
+    'snapshot includes only administrator-approved images',
+  );
+  check(
+    (await viewPhoto(client, true)).status === 404,
+    'unissued report image access denied',
+  );
   paths.push({ bucket: 'reports', path: pdfPath });
   const prepared = await api(owner, 'POST');
   if (!prepared.ok)
@@ -361,6 +620,12 @@ try {
   );
   const again = await api(owner, 'POST');
   check(again.ok, 'PDF preparation is idempotent');
+  check(
+    Boolean(
+      (await client.client.storage.from('reports').download(pdfPath)).error,
+    ),
+    'unissued PDF direct storage access denied',
+  );
   await required(
     owner.client.rpc('transition_report_status', {
       p_report_id: reportId,
@@ -368,6 +633,48 @@ try {
     }),
   );
   const result = await api(client);
+  check(
+    Boolean(
+      (
+        await client.client.storage
+          .from('report-images')
+          .download(photo.storage_path)
+      ).error,
+    ),
+    'published images require application gateway, never direct customer storage',
+  );
+  check(
+    Boolean(
+      (await client.client.storage.from('reports').download(pdfPath)).error,
+    ),
+    'published PDFs require application gateway, never direct customer storage',
+  );
+  const customerPhoto = await viewPhoto(client, true);
+  check(
+    customerPhoto.ok &&
+      digest(Buffer.from(await customerPhoto.arrayBuffer())) === photo.sha256,
+    'requester reads exact approved report image',
+  );
+  check(
+    (await viewPhoto(client, true, pendingId)).status === 404,
+    'pending image cannot be read through a published report',
+  );
+  for (const blocked of [null, otherClient, otherOwner])
+    check(
+      [401, 404].includes((await viewPhoto(blocked, true)).status),
+      'anonymous / other requester / organization report image denied',
+    );
+  await required(
+    owner.client.rpc('review_report_image', {
+      p_id: photo.id,
+      p_sha256: photo.sha256,
+      p_approve: false,
+    }),
+  );
+  check(
+    (await viewPhoto(client, true)).ok,
+    'later exclusion does not alter existing frozen report',
+  );
   check(
     result.ok && result.headers.get('content-type') === 'application/pdf',
     'requester downloads issued PDF',
@@ -393,6 +700,24 @@ try {
       (await api(blocked)).status === 404,
       'other requester / organization cannot download',
     );
+  for (const blocked of [otherClient, otherOwner]) {
+    check(
+      Boolean(
+        (
+          await blocked.client.storage
+            .from('report-images')
+            .download(photo.storage_path)
+        ).error,
+      ),
+      'cross-tenant direct image storage denied',
+    );
+    check(
+      Boolean(
+        (await blocked.client.storage.from('reports').download(pdfPath)).error,
+      ),
+      'cross-tenant direct PDF storage denied',
+    );
+  }
   check((await api(null)).status === 401, 'anonymous PDF access denied');
   const overwrite = await owner.client.storage
     .from('reports')
@@ -452,6 +777,23 @@ try {
     (await api(client)).status === 404,
     'withdrawal immediately removes requester access',
   );
+  check(
+    (await viewPhoto(client, true)).status === 404,
+    'withdrawal removes image API access',
+  );
+  const withdrawnImage = await client.client.storage
+    .from('report-images')
+    .download(photo.storage_path, {}, { cache: 'no-store' });
+  check(
+    Boolean(withdrawnImage.error),
+    'withdrawal removes direct image storage access',
+  );
+  check(
+    Boolean(
+      (await client.client.storage.from('reports').download(pdfPath)).error,
+    ),
+    'withdrawal removes direct PDF storage access',
+  );
 } catch (error) {
   failure = error;
   console.error(`Acceptance failure: ${error.message}`);
@@ -469,6 +811,7 @@ try {
   for (const organizationId of organizations) {
     for (const table of [
       'reports',
+      'report_images',
       'findings',
       'analysis_runs',
       'inspection_assessments',

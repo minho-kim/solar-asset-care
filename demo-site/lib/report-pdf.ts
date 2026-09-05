@@ -1,6 +1,13 @@
 import { PDFDocument, PageSizes, rgb, type PDFPage } from 'pdf-lib';
 import fontkit from '@pdf-lib/fontkit';
 import { defectLabels, kindLabels, severityLabels } from './finding-labels';
+import {
+  cleanReportJpeg,
+  MAX_REPORT_IMAGES,
+  reportBars,
+  validRect,
+  type ReportImage,
+} from './report-visuals';
 import type { Tables } from './supabase/database.types';
 import type {
   AssessmentResult,
@@ -9,7 +16,7 @@ import type {
   Settings,
 } from './operational-assessment';
 
-export const PDF_RENDERER_VERSION = 'text-assessment-v1';
+export const PDF_RENDERER_VERSION = 'reviewed-images-v2';
 export const REPORT_FONT_SHA256 =
   '76f45ef4a6bcff344c837c95a7dcc26e017e38b5846d5ae0cdcb5b86be2e2d31';
 type Content = {
@@ -34,6 +41,7 @@ type Content = {
   findings: Tables<'findings'>[];
   maintenance: { title: string; status: string }[];
   files: { id: string; original_name: string; sha256: string }[];
+  reportImages?: ReportImage[];
 };
 export async function sha256(bytes: Uint8Array) {
   return Array.from(
@@ -49,6 +57,7 @@ export async function renderReportPdf(
   report: Pick<Tables<'reports'>, 'id' | 'version' | 'created_at'>,
   snapshot: Pick<Tables<'report_snapshots'>, 'content' | 'sha256'>,
   fontBytes: Uint8Array,
+  loadImage?: (image: ReportImage) => Promise<Uint8Array>,
 ) {
   const c = snapshot.content as unknown as Content;
   if (
@@ -59,6 +68,12 @@ export async function renderReportPdf(
     c.findings.length > 500
   )
     throw new Error('보고서 형식 또는 소견 개수를 확인해 주세요.');
+  if (
+    c.reportImages &&
+    (!Array.isArray(c.reportImages) ||
+      c.reportImages.length > MAX_REPORT_IMAGES)
+  )
+    throw new Error('보고서 사진은 12장까지 포함할 수 있습니다.');
   if ((await sha256(fontBytes)) !== REPORT_FONT_SHA256)
     throw new Error('PDF 글꼴의 무결성 확인에 실패했습니다.');
   const pdf = await PDFDocument.create();
@@ -77,7 +92,7 @@ export async function renderReportPdf(
   const [width, height] = PageSizes.A4;
   const margin = 44;
   const maxWidth = width - margin * 2;
-  let page: PDFPage;
+  let page!: PDFPage;
   let y = 0;
   function newPage() {
     if (pdf.getPageCount() >= 120)
@@ -180,6 +195,30 @@ export async function renderReportPdf(
   paragraph(
     `기대발전량: ${fmt(r.expectedGenerationKwh, ' kWh')} / 실발전량: ${fmt(r.actualGenerationKwh, ' kWh')}\n기대발전량 대비 성능비: ${fmt(r.performanceRatio * 100, '%')} (${r.prStatus})\n추정 손실량: ${fmt(r.lossKwh, ' kWh')} / 추정 손실금액: ${fmt(r.lossAmount, '원')}\n기간 기대수익: ${fmt(r.expectedRevenue, '원')} / 기간 현재수익: ${fmt(r.currentRevenue, '원')}\n기간 회수가능액: ${fmt(r.recoverableAmount, '원')} / 연간 환산: ${fmt(r.annualRecoverableAmount, '원/년')}\n예상 수리비: ${fmt(p.repairCost, '원')} / 단순 투자회수기간: ${r.paybackYears === null ? '산출 불가 (회수가능액 0)' : fmt(r.paybackYears, '년')}`,
   );
+  ensure(220);
+  heading('동일 분석기간의 수익 비교');
+  for (const [index, bar] of reportBars(r).entries()) {
+    paragraph(`${bar.label}: ${fmt(bar.value, '원')}`);
+    page.drawRectangle({
+      x: margin,
+      y: y - 8,
+      width: maxWidth,
+      height: 12,
+      color: rgb(0.93, 0.95, 0.96),
+    });
+    if (bar.ratio > 0)
+      page.drawRectangle({
+        x: margin,
+        y: y - 8,
+        width: maxWidth * bar.ratio,
+        height: 12,
+        color: index === 1 ? rgb(0.06, 0.42, 0.39) : rgb(0.39, 0.45, 0.52),
+      });
+    y -= 30;
+  }
+  paragraph(
+    '개선 후 추정 = 현재 수익 + 기간 회수가능액. 실제 수익을 보장하지 않습니다.',
+  );
   heading('채택 소견·권고 조치');
   if (!c.findings.length) paragraph('채택된 이상 소견이 없습니다.');
   for (const [index, f] of c.findings.entries()) {
@@ -198,6 +237,71 @@ export async function renderReportPdf(
         `근거 원본: ${c.files.find((file) => file.id === f.source_file_id)?.original_name || '보관 원본'}`,
       );
     paragraph(f.expert_note || '별도 메모 없음');
+  }
+  if (c.reportImages?.length) {
+    newPage();
+    heading('점검 사진·이상 위치');
+    for (const photo of c.reportImages) {
+      if (!loadImage) throw new Error('보고서 사진을 불러오지 못했습니다.');
+      const jpeg = cleanReportJpeg(await loadImage(photo));
+      if (
+        (await sha256(jpeg.bytes)) !== photo.sha256 ||
+        jpeg.width !== photo.width ||
+        jpeg.height !== photo.height
+      )
+        throw new Error('보고서 사진의 무결성 확인에 실패했습니다.');
+      const embedded = await pdf.embedJpg(jpeg.bytes);
+      const scale = Math.min(maxWidth / photo.width, 330 / photo.height);
+      const w = photo.width * scale,
+        h = photo.height * scale;
+      ensure(h + 110);
+      paragraph(photo.caption, 12);
+      const top = y,
+        left = margin,
+        bottom = top - h;
+      page.drawImage(embedded, { x: left, y: bottom, width: w, height: h });
+      const markers: number[] = [];
+      c.findings.forEach((finding, index) => {
+        if (
+          finding.source_file_id !== photo.source_file_id ||
+          !validRect(finding.region)
+        )
+          return;
+        const box = finding.region;
+        const x = left + box.x * w,
+          boxTop = top - box.y * h;
+        page.drawRectangle({
+          x,
+          y: boxTop - box.height * h,
+          width: box.width * w,
+          height: box.height * h,
+          borderWidth: 1.5,
+          borderColor: rgb(0.8, 0.1, 0.12),
+        });
+        const label = String(index + 1),
+          labelWidth = font.widthOfTextAtSize(label, 11) + 6;
+        const labelX = Math.min(x, left + w - labelWidth),
+          labelY = Math.max(bottom, boxTop - 16);
+        page.drawRectangle({
+          x: labelX,
+          y: labelY,
+          width: labelWidth,
+          height: 16,
+          color: rgb(0.7, 0.06, 0.08),
+        });
+        page.drawText(label, {
+          x: labelX + 3,
+          y: labelY + 3,
+          font,
+          size: 11,
+          color: rgb(1, 1, 1),
+        });
+        markers.push(index + 1);
+      });
+      y = bottom - 22;
+      if (markers.length) paragraph(`표시 영역: 소견 ${markers.join(', ')}번`);
+      paragraph(`사진 확인값: ${photo.sha256}`);
+    }
   }
   heading('후속 조치');
   for (const item of c.maintenance) paragraph(item.title);

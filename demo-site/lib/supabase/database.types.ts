@@ -1127,6 +1127,85 @@ export type Database = {
           },
         ];
       };
+      report_images: {
+        Row: {
+          bytes: number;
+          caption: string;
+          created_at: string;
+          created_by: string;
+          height: number;
+          id: string;
+          inspection_id: string;
+          masks: Json;
+          organization_id: string;
+          reviewed_at: string | null;
+          reviewed_by: string | null;
+          sha256: string;
+          source_file_id: string;
+          status: string;
+          storage_path: string;
+          width: number;
+        };
+        Insert: {
+          bytes: number;
+          caption: string;
+          created_at?: string;
+          created_by: string;
+          height: number;
+          id: string;
+          inspection_id: string;
+          masks?: Json;
+          organization_id: string;
+          reviewed_at?: string | null;
+          reviewed_by?: string | null;
+          sha256: string;
+          source_file_id: string;
+          status?: string;
+          storage_path: string;
+          width: number;
+        };
+        Update: {
+          bytes?: number;
+          caption?: string;
+          created_at?: string;
+          created_by?: string;
+          height?: number;
+          id?: string;
+          inspection_id?: string;
+          masks?: Json;
+          organization_id?: string;
+          reviewed_at?: string | null;
+          reviewed_by?: string | null;
+          sha256?: string;
+          source_file_id?: string;
+          status?: string;
+          storage_path?: string;
+          width?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'report_images_inspection_id_fkey';
+            columns: ['inspection_id'];
+            isOneToOne: false;
+            referencedRelation: 'inspections';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'report_images_organization_id_fkey';
+            columns: ['organization_id'];
+            isOneToOne: false;
+            referencedRelation: 'organizations';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'report_images_source_file_id_fkey';
+            columns: ['source_file_id'];
+            isOneToOne: false;
+            referencedRelation: 'inspection_files';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       report_snapshots: {
         Row: {
           content: Json;
@@ -1544,6 +1623,42 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      register_report_image: {
+        Args: {
+          p_bytes: number;
+          p_caption: string;
+          p_height: number;
+          p_id: string;
+          p_masks: Json;
+          p_sha256: string;
+          p_source_file_id: string;
+          p_width: number;
+        };
+        Returns: {
+          bytes: number;
+          caption: string;
+          created_at: string;
+          created_by: string;
+          height: number;
+          id: string;
+          inspection_id: string;
+          masks: Json;
+          organization_id: string;
+          reviewed_at: string | null;
+          reviewed_by: string | null;
+          sha256: string;
+          source_file_id: string;
+          status: string;
+          storage_path: string;
+          width: number;
+        };
+        SetofOptions: {
+          from: '*';
+          to: 'report_images';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       register_requester: {
         Args: never;
         Returns: {
@@ -1575,6 +1690,33 @@ export type Database = {
         SetofOptions: {
           from: '*';
           to: 'inspections';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      review_report_image: {
+        Args: { p_approve: boolean; p_id: string; p_sha256: string };
+        Returns: {
+          bytes: number;
+          caption: string;
+          created_at: string;
+          created_by: string;
+          height: number;
+          id: string;
+          inspection_id: string;
+          masks: Json;
+          organization_id: string;
+          reviewed_at: string | null;
+          reviewed_by: string | null;
+          sha256: string;
+          source_file_id: string;
+          status: string;
+          storage_path: string;
+          width: number;
+        };
+        SetofOptions: {
+          from: '*';
+          to: 'report_images';
           isOneToOne: true;
           isSetofReturn: false;
         };

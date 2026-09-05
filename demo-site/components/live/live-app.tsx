@@ -5,6 +5,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  useRef,
   type SyntheticEvent,
 } from 'react';
 import Link from 'next/link';
@@ -38,11 +39,17 @@ import {
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Progress } from '@/components/ui/progress';
+import {
+  saveOriginal,
+  originalImageType as verifiedImageType,
+} from '@/lib/original-upload';
 import { Textarea } from '@/components/ui/textarea';
 import { backendConfig, getSupabaseBrowserClient } from '@/lib/supabase/client';
 import type { Database, Json, Tables } from '@/lib/supabase/database.types';
 import { AssessmentsView, CalculationSettingsView } from './live-assessments';
 import { FindingsEditorView } from './live-findings';
+import { ReportImagesView } from './live-report-images';
 import { requestReportPdf } from '@/lib/report-download';
 import { koreanDate, parseKoreanInput } from '@/lib/operational-assessment';
 
@@ -71,6 +78,7 @@ type View =
   | 'plants'
   | 'inspections'
   | 'files'
+  | 'report-images'
   | 'findings'
   | 'assessments'
   | 'calculation-settings'
@@ -177,6 +185,7 @@ const navItems: Array<{
   { id: 'plants', label: '발전소', icon: Building2 },
   { id: 'inspections', label: '점검', icon: ClipboardCheck },
   { id: 'files', label: '열화상 업로드', icon: UploadCloud },
+  { id: 'report-images', label: '보고서 사진', icon: ImageIcon },
   { id: 'findings', label: '후보 판정', icon: ThermometerSun },
   { id: 'assessments', label: '촬영조건·발전량', icon: Gauge },
   { id: 'calculation-settings', label: '계산·촬영 기준', icon: ClipboardCheck },
@@ -194,6 +203,7 @@ const roleViews: Record<string, View[]> = {
     'plants',
     'inspections',
     'files',
+    'report-images',
     'findings',
     'assessments',
     'reports',
@@ -1222,6 +1232,9 @@ function AdminConsole({
               {view === 'files' && (
                 <FilesView {...shared} canWrite={canUpload} />
               )}
+              {view === 'report-images' && canUpload && (
+                <ReportImagesView {...shared} isOwner={isOwner} />
+              )}
               {view === 'findings' && (
                 <FindingsEditorView {...shared} canWrite={canReview} />
               )}
@@ -2157,47 +2170,6 @@ function InspectionsView(
   );
 }
 
-async function fileSha256(file: File) {
-  const digest = await crypto.subtle.digest(
-    'SHA-256',
-    await file.arrayBuffer(),
-  );
-  return Array.from(new Uint8Array(digest), (byte) =>
-    byte.toString(16).padStart(2, '0'),
-  ).join('');
-}
-
-const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
-
-async function verifiedImageType(file: File) {
-  if (file.size > MAX_UPLOAD_BYTES) {
-    throw new Error('파일은 50MB 이하만 업로드할 수 있습니다.');
-  }
-  const header = new Uint8Array(await file.slice(0, 8).arrayBuffer());
-  if (header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) {
-    return { mimeType: 'image/jpeg', extension: 'jpg' };
-  }
-  if (
-    header[0] === 0x89 &&
-    header[1] === 0x50 &&
-    header[2] === 0x4e &&
-    header[3] === 0x47 &&
-    header[4] === 0x0d &&
-    header[5] === 0x0a &&
-    header[6] === 0x1a &&
-    header[7] === 0x0a
-  ) {
-    return { mimeType: 'image/png', extension: 'png' };
-  }
-  if (
-    (header[0] === 0x49 && header[1] === 0x49 && header[2] === 0x2a) ||
-    (header[0] === 0x4d && header[1] === 0x4d && header[3] === 0x2a)
-  ) {
-    return { mimeType: 'image/tiff', extension: 'tiff' };
-  }
-  throw new Error('파일 내용이 JPG, PNG 또는 TIFF 이미지 형식이 아닙니다.');
-}
-
 async function imageValues(file: File) {
   const bitmap = await createImageBitmap(file);
   const ratio = Math.min(1, 320 / bitmap.width, 300 / bitmap.height);
@@ -2228,7 +2200,17 @@ function FilesView(props: SharedProps & { canWrite: boolean }) {
   const [kind, setKind] = useState<'thermal_original' | 'visible_original'>(
     'thermal_original',
   );
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [queue, setQueue] = useState<
+    Array<{
+      id: string;
+      file: File;
+      status: 'waiting' | 'uploading' | 'analyzing' | 'done' | 'failed';
+      progress: number;
+      message: string;
+    }>
+  >([]);
+  const uploadController = useRef<AbortController | null>(null);
+  useEffect(() => () => uploadController.current?.abort(), []);
   const [runAnalysis, setRunAnalysis] = useState(true);
   const [busy, setBusy] = useState(false);
   const [analyzingFileId, setAnalyzingFileId] = useState<string | null>(null);
@@ -2339,79 +2321,77 @@ function FilesView(props: SharedProps & { canWrite: boolean }) {
 
   async function upload(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selectedFile || !effectiveInspectionId) return;
+    if (busy || !effectiveInspectionId || !queue.length) return;
+    const controller = new AbortController();
+    uploadController.current = controller;
     setBusy(true);
-    props.setNotice({
-      tone: 'info',
-      text: '원본 파일을 저장하고 무결성 값을 계산하는 중입니다.',
-    });
-    let storagePath = '';
+    props.setNotice(null);
+    let completed = 0,
+      failed = 0;
+    const update = (id: string, patch: Partial<(typeof queue)[number]>) =>
+      setQueue((rows) =>
+        rows.map((row) => (row.id === id ? { ...row, ...patch } : row)),
+      );
     try {
-      const verifiedType = await verifiedImageType(selectedFile);
-      storagePath = `${props.organizationId}/${effectiveInspectionId}/${crypto.randomUUID()}.${verifiedType.extension}`;
-      const sha256 = await fileSha256(selectedFile);
-      const { error: uploadError } = await props.supabase.storage
-        .from('inspection-originals')
-        .upload(storagePath, selectedFile, {
-          contentType: verifiedType.mimeType,
-          upsert: false,
-        });
-      if (uploadError) throw uploadError;
-      const { data: fileRow, error: rowError } = await props.supabase
-        .from('inspection_files')
-        .insert({
-          organization_id: props.organizationId,
-          inspection_id: effectiveInspectionId,
-          kind,
-          storage_bucket: 'inspection-originals',
-          storage_path: storagePath,
-          original_name: selectedFile.name,
-          mime_type: verifiedType.mimeType,
-          bytes: selectedFile.size,
-          sha256,
-          captured_at: selectedFile.lastModified
-            ? new Date(selectedFile.lastModified).toISOString()
-            : null,
-          capture_timezone: backendConfig.displayTimezone,
-          quality_status: 'pending',
-          created_by: props.session.user.id,
-        })
-        .select('*')
-        .single();
-      if (rowError) {
-        await props.supabase.storage
-          .from('inspection-originals')
-          .remove([storagePath]);
-        throw rowError;
-      }
-
-      let analysisText = '';
-      if (
-        runAnalysis &&
-        kind === 'thermal_original' &&
-        ['image/jpeg', 'image/png'].includes(verifiedType.mimeType)
-      ) {
-        props.setNotice({
-          tone: 'info',
-          text: '원본 저장 완료. 색상 분포 기반 상대 분석을 실행하는 중입니다.',
-        });
+      for (const item of queue.filter((row) => row.status !== 'done')) {
+        if (controller.signal.aborted) break;
+        update(item.id, { status: 'uploading', message: '파일 확인·전송 중' });
         try {
-          const candidateCount = await analyzeFile(selectedFile, fileRow);
-          analysisText = ` 상대 분석 후보 ${candidateCount}건을 만들었습니다.`;
+          const fileRow = await saveOriginal({
+            file: item.file,
+            client: props.supabase,
+            userId: props.session.user.id,
+            projectUrl: process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+            organizationId: props.organizationId,
+            inspectionId: effectiveInspectionId,
+            kind,
+            signal: controller.signal,
+            onProgress: (progress) => update(item.id, { progress }),
+          });
+          let message = '저장 완료';
+          if (
+            !controller.signal.aborted &&
+            runAnalysis &&
+            kind === 'thermal_original' &&
+            ['image/jpeg', 'image/png'].includes(fileRow.mime_type || '') &&
+            !hasSuccessfulAnalysis(fileRow.id)
+          ) {
+            update(item.id, {
+              status: 'analyzing',
+              message: '원본 저장 완료 · 상대 분석 중',
+            });
+            try {
+              const normalized = new File([item.file], item.file.name, {
+                type: fileRow.mime_type || '',
+              });
+              const count = await analyzeFile(normalized, fileRow);
+              message += ` · 후보 ${count}건`;
+            } catch {
+              message += ' · 분석은 아래 원본 목록에서 다시 실행해 주세요.';
+            }
+          }
+          update(item.id, { status: 'done', progress: 100, message });
+          completed++;
         } catch (error) {
-          analysisText = ` 원본은 안전하게 저장됐지만 상대 분석은 완료하지 못했습니다: ${errorMessage(error)} 아래 목록에서 다시 실행할 수 있습니다.`;
+          if (controller.signal.aborted) {
+            update(item.id, {
+              status: 'waiting',
+              message: '일시정지 · 같은 파일로 이어 올릴 수 있습니다.',
+            });
+            break;
+          }
+          update(item.id, { status: 'failed', message: errorMessage(error) });
+          failed++;
         }
       }
       props.setNotice({
-        tone: 'success',
-        text: `원본 파일을 저장했습니다.${analysisText}`,
+        tone: failed ? 'error' : 'success',
+        text: `${completed}개 저장 완료${failed ? ` · ${failed}개는 다시 시도해 주세요.` : ''}${controller.signal.aborted ? ' · 나머지는 일시정지했습니다.' : ''}`,
       });
-      setSelectedFile(null);
       await props.refresh();
-    } catch (error) {
-      props.setNotice({ tone: 'error', text: errorMessage(error) });
     } finally {
       setBusy(false);
+      uploadController.current = null;
     }
   }
 
@@ -2445,8 +2425,11 @@ function FilesView(props: SharedProps & { canWrite: boolean }) {
             <select
               className="h-9 w-full rounded-lg border bg-white px-3 text-sm"
               value={effectiveInspectionId}
-              onChange={(e) => setInspectionId(e.target.value)}
-              disabled={!props.canWrite}
+              onChange={(e) => {
+                setInspectionId(e.target.value);
+                setQueue([]);
+              }}
+              disabled={!props.canWrite || busy || queue.length > 0}
             >
               {props.inspections.map((inspection) => (
                 <option key={inspection.id} value={inspection.id}>
@@ -2460,7 +2443,7 @@ function FilesView(props: SharedProps & { canWrite: boolean }) {
               className="h-9 w-full rounded-lg border bg-white px-3 text-sm"
               value={kind}
               onChange={(e) => setKind(e.target.value as typeof kind)}
-              disabled={!props.canWrite}
+              disabled={!props.canWrite || busy || queue.length > 0}
             >
               <option value="thermal_original">열화상 원본</option>
               <option value="visible_original">가시광 원본</option>
@@ -2470,20 +2453,82 @@ function FilesView(props: SharedProps & { canWrite: boolean }) {
             <span>
               <ImageIcon className="mx-auto size-8 text-slate-300" />
               <strong className="mt-3 block text-sm">
-                {selectedFile?.name || '이미지를 선택하세요'}
+                {queue.length
+                  ? `${queue.length}개 파일 선택됨`
+                  : '이미지를 여러 장 선택하세요'}
               </strong>
               <span className="mt-1 block text-xs text-slate-400">
-                JPG·PNG·TIFF, 최대 50MB
+                JPG·PNG·TIFF, 파일당 50MB · 한 번에 20개
               </span>
             </span>
             <input
               className="sr-only"
               type="file"
               accept="image/jpeg,image/png,image/tiff,.tif,.tiff"
-              disabled={!props.canWrite}
-              onChange={(e) => setSelectedFile(e.target.files?.[0] ?? null)}
+              multiple
+              disabled={!props.canWrite || busy}
+              onChange={(e) => {
+                const selected = Array.from(e.target.files || []);
+                if (selected.length > 20)
+                  props.setNotice({
+                    tone: 'error',
+                    text: '한 번에 최대 20개까지 선택해 주세요.',
+                  });
+                else
+                  setQueue(
+                    selected.map((file) => ({
+                      id: crypto.randomUUID(),
+                      file,
+                      status: 'waiting',
+                      progress: 0,
+                      message: '대기 중',
+                    })),
+                  );
+                e.target.value = '';
+              }}
             />
           </label>
+          <p className="text-sm leading-6 text-slate-600">
+            중단되면 다시 시작하세요. 창을 닫았다면 같은 계정·점검·파일 종류에서
+            같은 파일을 다시 선택하면 됩니다. 재개 정보가 만료되면 처음부터
+            전송합니다.
+          </p>
+          {queue.length > 0 && (
+            <div className="space-y-3">
+              {queue.map((item) => (
+                <div
+                  key={item.id}
+                  className="min-w-0 rounded-lg border p-3 text-sm"
+                >
+                  <p className="break-all font-medium">{item.file.name}</p>
+                  <output className="my-2 block text-slate-600">
+                    {item.message}
+                  </output>
+                  <Progress
+                    value={item.progress}
+                    aria-label={`${item.file.name} 전송 진행률`}
+                  />
+                </div>
+              ))}
+              {busy ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => uploadController.current?.abort()}
+                >
+                  업로드 일시정지
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setQueue([])}
+                >
+                  선택 목록 비우기
+                </Button>
+              )}
+            </div>
+          )}
           {kind === 'thermal_original' && (
             <label className="flex items-start gap-3 rounded-xl bg-teal-50 p-3 text-xs leading-5 text-teal-900">
               <input
@@ -2500,7 +2545,10 @@ function FilesView(props: SharedProps & { canWrite: boolean }) {
             type="submit"
             className="w-full"
             disabled={
-              !props.canWrite || !effectiveInspectionId || !selectedFile || busy
+              !props.canWrite ||
+              !effectiveInspectionId ||
+              !queue.some((item) => item.status !== 'done') ||
+              busy
             }
           >
             {busy ? <Loader2 className="animate-spin" /> : <UploadCloud />}원본

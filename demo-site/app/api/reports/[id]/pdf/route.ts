@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/database.types';
+import { downloadReportAsset } from '@/lib/server/report-storage';
 import {
   PDF_RENDERER_VERSION,
   renderReportPdf,
@@ -83,15 +84,19 @@ async function handle(request: Request, context: Context, prepare: boolean) {
         '아직 PDF가 보관되지 않았습니다. 관리자가 발행을 진행해 주세요.',
         409,
       );
-    const { data: blob, error } = await client.storage
-      .from('reports')
-      .download(existing.storage_path);
-    if (error || !blob)
+    let bytes: Uint8Array;
+    try {
+      bytes = await downloadReportAsset(
+        'reports',
+        existing.storage_path,
+        existing.bytes,
+      );
+    } catch {
       return json(
         '보관 파일을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.',
         503,
       );
-    const bytes = new Uint8Array(await blob.arrayBuffer());
+    }
     if ((await sha256(bytes)) !== existing.pdf_sha256)
       return json(
         '보관 파일의 무결성 확인에 실패했습니다. 관리자에게 문의해 주세요.',
@@ -126,14 +131,29 @@ async function handle(request: Request, context: Context, prepare: boolean) {
   try {
     if (JSON.stringify(snapshot.content).length > 2000000)
       throw new Error('보고서가 너무 큽니다. 점검별로 소견을 나눠 주세요.');
-    const bytes = await renderReportPdf(report, snapshot, await font());
+    const bytes = await renderReportPdf(
+      report,
+      snapshot,
+      await font(),
+      async (image) => {
+        return downloadReportAsset(
+          'report-images',
+          image.storage_path,
+          image.bytes,
+        );
+      },
+    );
     if (bytes.length > 20000000)
       throw new Error('PDF 크기가 보관 한도를 초과했습니다.');
     const checksum = await sha256(bytes);
     const path = `${report.organization_id}/${report.inspection_id}/${id}/${snapshot.sha256}.pdf`;
     const { error: uploadError } = await client.storage
       .from('reports')
-      .upload(path, bytes, { contentType: 'application/pdf', upsert: false });
+      .upload(path, bytes, {
+        contentType: 'application/pdf',
+        cacheControl: '0',
+        upsert: false,
+      });
     if (uploadError) {
       // An interrupted previous request may have uploaded bytes but not registered them.
       const { data: previous, error } = await client.storage

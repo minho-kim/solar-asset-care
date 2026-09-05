@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
 import { PDFDocument, PDFDict, PDFName } from 'pdf-lib';
+import { createHash } from 'node:crypto';
+import { testJpeg } from './fixtures/report-image.mjs';
 const compile = (path) =>
   ts.transpileModule(readFileSync(new URL(path, import.meta.url), 'utf8'), {
     compilerOptions: {
@@ -13,14 +15,17 @@ const compile = (path) =>
 const dataUrl = (code) =>
   `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`;
 const labels = dataUrl(compile('../lib/finding-labels.ts'));
+const visuals = dataUrl(compile('../lib/report-visuals.ts'));
 const source = compile('../lib/report-pdf.ts')
   .replace(/from ['"]pdf-lib['"]/g, `from '${import.meta.resolve('pdf-lib')}'`)
   .replace(
     /from ['"]@pdf-lib\/fontkit['"]/g,
     `from '${import.meta.resolve('@pdf-lib/fontkit')}'`,
   )
-  .replace(/from ['"].\/finding-labels['"]/g, `from '${labels}'`);
+  .replace(/from ['"].\/finding-labels['"]/g, `from '${labels}'`)
+  .replace(/from ['"].\/report-visuals['"]/g, `from '${visuals}'`);
 const { renderReportPdf } = await import(dataUrl(source));
+const { cleanReportJpeg } = await import(visuals);
 const font = readFileSync(
   new URL('../public/fonts/NanumGothic-Regular.ttf', import.meta.url),
 );
@@ -133,5 +138,81 @@ test('unverified fonts and unsupported snapshots cannot be archived', async () =
         font,
       ),
     /형식/,
+  );
+});
+test('approved JPEG and finding regions are embedded deterministically; missing or changed bytes fail closed', async () => {
+  const jpeg = cleanReportJpeg(testJpeg);
+  const photo = {
+    id: 'test-image',
+    source_file_id: 'test-source',
+    caption: '가림 처리 사진',
+    width: jpeg.width,
+    height: jpeg.height,
+    sha256: createHash('sha256').update(jpeg.bytes).digest('hex'),
+  };
+  const frozen = {
+    ...snapshot,
+    content: {
+      ...snapshot.content,
+      reportImages: [photo],
+      findings: [
+        {
+          id: 'finding',
+          source_file_id: photo.source_file_id,
+          kind: 'hotspot',
+          severity: 'major',
+          region: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+        },
+      ],
+    },
+  };
+  const bytes = await renderReportPdf(
+    report,
+    frozen,
+    font,
+    async () => jpeg.bytes,
+  );
+  assert.deepEqual(
+    bytes,
+    await renderReportPdf(report, frozen, font, async () => jpeg.bytes),
+  );
+  const pdf = await PDFDocument.load(bytes);
+  assert.ok(
+    pdf.context
+      .enumerateIndirectObjects()
+      .some(
+        ([, obj]) =>
+          obj.dict?.get(PDFName.of('Subtype'))?.toString() === '/Image',
+      ),
+  );
+  await assert.rejects(() => renderReportPdf(report, frozen, font), /사진/);
+  await assert.rejects(
+    () =>
+      renderReportPdf(
+        report,
+        {
+          ...frozen,
+          content: {
+            ...frozen.content,
+            reportImages: [{ ...photo, sha256: '0'.repeat(64) }],
+          },
+        },
+        font,
+        async () => jpeg.bytes,
+      ),
+    /무결성/,
+  );
+  await assert.rejects(
+    () =>
+      renderReportPdf(
+        report,
+        {
+          ...frozen,
+          content: { ...frozen.content, reportImages: Array(13).fill(photo) },
+        },
+        font,
+        async () => jpeg.bytes,
+      ),
+    /12장/,
   );
 });
