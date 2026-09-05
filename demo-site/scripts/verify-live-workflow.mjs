@@ -8,16 +8,13 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { testJpeg } from '../tests/fixtures/report-image.mjs';
 import ts from 'typescript';
+import { acceptanceTarget } from './acceptance-target.mjs';
 if (process.env.SOLAR_ACCEPTANCE_RUN !== '1')
   throw new Error(
     'Set SOLAR_ACCEPTANCE_RUN=1 to run the isolated remote acceptance test.',
   );
 const project = 'vzgmryqglptxowbdewkf';
-const origin = process.env.SOLAR_ACCEPTANCE_ORIGIN || 'http://localhost:3000';
-assert.ok(
-  /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin),
-  'Only a local site may be tested.',
-);
+const origin = acceptanceTarget(process.env);
 const env = Object.fromEntries(
   readFileSync(new URL('../.env.local', import.meta.url), 'utf8')
     .split('\n')
@@ -125,6 +122,28 @@ try {
     client = await user(),
     otherClient = await user(),
     otherOwner = await user();
+  if (process.env.SOLAR_ACCEPTANCE_DEPLOYED === '1') {
+    // Generate links for a synthetic account only; this API does not send email.
+    // Check both explicit recovery redirects and the fallback used by invitations.
+    for (const options of [{ redirectTo: `${origin}/` }, undefined]) {
+      const link = await required(
+        admin.auth.admin.generateLink({
+          type: 'recovery',
+          email: client.email,
+          options,
+        }),
+      );
+      const redirect = new URL(link.properties.action_link).searchParams.get(
+        'redirect_to',
+      );
+      check(
+        redirect && new URL(redirect).origin === origin,
+        options
+          ? 'hosted recovery returns to this site'
+          : 'default auth callback returns to this site',
+      );
+    }
+  }
   const organization = await org(owner);
   await org(otherOwner);
   await required(
