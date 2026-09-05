@@ -14,6 +14,87 @@ export type Database = {
   };
   public: {
     Tables: {
+      recycling_certificates: {
+        Row: {
+          bytes: number;
+          certificate_number: string;
+          created_at: string;
+          created_by: string;
+          id: string;
+          issued_on: string;
+          issuer: string;
+          mime_type: string;
+          organization_id: string;
+          panel_count: number | null;
+          plant_id: string;
+          review_reason: string;
+          reviewed_at: string | null;
+          reviewed_by: string | null;
+          revision: number;
+          sha256: string;
+          status: string;
+          storage_path: string;
+          title: string;
+        };
+        Insert: {
+          bytes: number;
+          certificate_number?: string;
+          created_at?: string;
+          created_by: string;
+          id: string;
+          issued_on: string;
+          issuer: string;
+          mime_type: string;
+          organization_id: string;
+          panel_count?: number | null;
+          plant_id: string;
+          review_reason?: string;
+          reviewed_at?: string | null;
+          reviewed_by?: string | null;
+          revision?: number;
+          sha256: string;
+          status?: string;
+          storage_path: string;
+          title: string;
+        };
+        Update: {
+          bytes?: number;
+          certificate_number?: string;
+          created_at?: string;
+          created_by?: string;
+          id?: string;
+          issued_on?: string;
+          issuer?: string;
+          mime_type?: string;
+          organization_id?: string;
+          panel_count?: number | null;
+          plant_id?: string;
+          review_reason?: string;
+          reviewed_at?: string | null;
+          reviewed_by?: string | null;
+          revision?: number;
+          sha256?: string;
+          status?: string;
+          storage_path?: string;
+          title?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'recycling_certificates_organization_id_fkey';
+            columns: ['organization_id'];
+            isOneToOne: false;
+            referencedRelation: 'organizations';
+            referencedColumns: ['id'];
+          },
+          {
+            foreignKeyName: 'recycling_certificates_plant_id_fkey';
+            columns: ['plant_id'];
+            isOneToOne: false;
+            referencedRelation: 'plants';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       analysis_runs: {
         Row: {
           algorithm_key: string;
@@ -1623,6 +1704,87 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      correct_recycling_certificate: {
+        Args: {
+          p_id: string;
+          p_issued_on: string;
+          p_issuer: string;
+          p_number: string;
+          p_panel_count: number | null;
+          p_plant_id: string;
+          p_reason: string;
+          p_revision: number;
+          p_title: string;
+        };
+        Returns: {
+          bytes: number;
+          certificate_number: string;
+          created_at: string;
+          created_by: string;
+          id: string;
+          issued_on: string;
+          issuer: string;
+          mime_type: string;
+          organization_id: string;
+          panel_count: number | null;
+          plant_id: string;
+          review_reason: string;
+          reviewed_at: string | null;
+          reviewed_by: string | null;
+          revision: number;
+          sha256: string;
+          status: string;
+          storage_path: string;
+          title: string;
+        };
+        SetofOptions: {
+          from: '*';
+          to: 'recycling_certificates';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      register_recycling_certificate: {
+        Args: {
+          p_bytes: number;
+          p_id: string;
+          p_issued_on: string;
+          p_issuer: string;
+          p_mime_type: string;
+          p_number: string;
+          p_panel_count: number | null;
+          p_plant_id: string;
+          p_sha256: string;
+          p_title: string;
+        };
+        Returns: {
+          bytes: number;
+          certificate_number: string;
+          created_at: string;
+          created_by: string;
+          id: string;
+          issued_on: string;
+          issuer: string;
+          mime_type: string;
+          organization_id: string;
+          panel_count: number | null;
+          plant_id: string;
+          review_reason: string;
+          reviewed_at: string | null;
+          reviewed_by: string | null;
+          revision: number;
+          sha256: string;
+          status: string;
+          storage_path: string;
+          title: string;
+        };
+        SetofOptions: {
+          from: '*';
+          to: 'recycling_certificates';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       register_report_image: {
         Args: {
           p_bytes: number;
@@ -1690,6 +1852,42 @@ export type Database = {
         SetofOptions: {
           from: '*';
           to: 'inspections';
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      review_recycling_certificate: {
+        Args: {
+          p_id: string;
+          p_publish: boolean;
+          p_reason: string;
+          p_revision: number;
+          p_sha256: string;
+        };
+        Returns: {
+          bytes: number;
+          certificate_number: string;
+          created_at: string;
+          created_by: string;
+          id: string;
+          issued_on: string;
+          issuer: string;
+          mime_type: string;
+          organization_id: string;
+          panel_count: number | null;
+          plant_id: string;
+          review_reason: string;
+          reviewed_at: string | null;
+          reviewed_by: string | null;
+          revision: number;
+          sha256: string;
+          status: string;
+          storage_path: string;
+          title: string;
+        };
+        SetofOptions: {
+          from: '*';
+          to: 'recycling_certificates';
           isOneToOne: true;
           isSetofReturn: false;
         };

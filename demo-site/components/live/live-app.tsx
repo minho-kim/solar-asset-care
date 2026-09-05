@@ -37,7 +37,7 @@ import {
   Wrench,
 } from 'lucide-react';
 
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import {
@@ -50,6 +50,7 @@ import type { Database, Json, Tables } from '@/lib/supabase/database.types';
 import { AssessmentsView, CalculationSettingsView } from './live-assessments';
 import { FindingsEditorView } from './live-findings';
 import { ReportImagesView } from './live-report-images';
+import { RecyclingView } from './live-recycling';
 import { requestReportPdf } from '@/lib/report-download';
 import { koreanDate, parseKoreanInput } from '@/lib/operational-assessment';
 
@@ -79,6 +80,7 @@ type View =
   | 'inspections'
   | 'files'
   | 'report-images'
+  | 'recycling'
   | 'findings'
   | 'assessments'
   | 'calculation-settings'
@@ -191,6 +193,7 @@ const navItems: Array<{
   { id: 'calculation-settings', label: '계산·촬영 기준', icon: ClipboardCheck },
   { id: 'reports', label: '보고서', icon: FileText },
   { id: 'maintenance', label: '유지보수', icon: Wrench },
+  { id: 'recycling', label: '재활용 인증서', icon: FileCheck2 },
   { id: 'partners', label: '업체·견적', icon: Handshake },
   { id: 'members', label: '관리자·사용자', icon: Users },
   { id: 'account', label: '내 계정', icon: KeyRound },
@@ -208,6 +211,7 @@ const roleViews: Record<string, View[]> = {
     'assessments',
     'reports',
     'maintenance',
+    'recycling',
     'account',
   ],
   client: [
@@ -217,6 +221,7 @@ const roleViews: Record<string, View[]> = {
     'reports',
     'maintenance',
     'partners',
+    'recycling',
     'account',
   ],
 };
@@ -1254,6 +1259,9 @@ function AdminConsole({
               )}
               {view === 'maintenance' && (
                 <MaintenanceView {...shared} canWrite={canMaintain} />
+              )}
+              {view === 'recycling' && (
+                <RecyclingView {...shared} isOwner={isOwner} />
               )}
               {view === 'partners' && (
                 <PartnerQuotesView
@@ -2700,11 +2708,13 @@ function ReportsView(
         title={props.requesterMode ? '발행 보고서' : '보고서 버전·승인·발행'}
         copy={
           props.requesterMode
-            ? '관리자가 최종 발행한 내 발전소 보고서만 표시됩니다.'
+            ? undefined
             : '점검별로 버전을 나눠 보존하고 승인자와 발행 시각을 남깁니다. 전문가는 검토 요청까지, 최종 승인과 발행은 관리자만 처리합니다.'
         }
       />
-      <div className="grid gap-5 xl:grid-cols-[380px_1fr]">
+      <div
+        className={`grid gap-5 ${props.canCreate ? 'xl:grid-cols-[380px_1fr]' : ''}`}
+      >
         {props.canCreate ? (
           <form
             onSubmit={create}
@@ -2739,16 +2749,7 @@ function ReportsView(
               {busy ? <Loader2 className="animate-spin" /> : <Plus />}초안 생성
             </Button>
           </form>
-        ) : (
-          <div className="h-fit rounded-2xl border bg-white p-5 shadow-sm">
-            <FileCheck2 className="size-7 text-teal-600" />
-            <h2 className="mt-4 font-bold">최종 결과만 제공됩니다</h2>
-            <p className="mt-2 text-xs leading-5 text-slate-500">
-              작성 중이거나 내부 검토 중인 문서는 보이지 않으며, 관리자가 발행한
-              버전만 열람할 수 있습니다.
-            </p>
-          </div>
-        )}
+        ) : null}
         <section className="space-y-3">
           {props.reports.map((report) => (
             <article
@@ -2771,11 +2772,9 @@ function ReportsView(
                     href={`/reports/${report.id}`}
                     target="_blank"
                     rel="noreferrer"
+                    className={`${buttonVariants({ variant: 'outline', size: 'sm' })} min-h-11`}
                   >
-                    <Button variant="outline" size="sm">
-                      <FileText />
-                      인쇄 보기
-                    </Button>
+                    <FileText /> 보고서 보기
                   </Link>
                   <StatusPill>
                     {statusLabel(report.status, reportStatuses)}

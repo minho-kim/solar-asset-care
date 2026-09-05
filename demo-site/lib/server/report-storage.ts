@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 /** Server-only byte access AFTER the caller has verified getUser + report/snapshot
  * visibility with the user's RLS client. Never use this client to authorize users. */
 export async function downloadReportAsset(
-  bucket: 'reports' | 'report-images',
+  bucket: 'reports' | 'report-images' | 'recycling-certificates',
   path: string,
   expectedBytes: number,
 ) {
@@ -19,9 +19,14 @@ export async function downloadReportAsset(
     throw new Error(
       '보고서 파일 전달 설정이 필요합니다. 관리자에게 문의해 주세요.',
     );
-  const max = bucket === 'reports' ? 20000000 : 1200000;
+  const max =
+    bucket === 'reports'
+      ? 20000000
+      : bucket === 'recycling-certificates'
+        ? 10000000
+        : 1200000;
   if (
-    !/^[a-f0-9/-]+\.(pdf|jpg)$/.test(path) ||
+    !/^[a-f0-9/-]+\.(pdf|jpg|png)$/.test(path) ||
     !Number.isInteger(expectedBytes) ||
     expectedBytes < 1 ||
     expectedBytes > max

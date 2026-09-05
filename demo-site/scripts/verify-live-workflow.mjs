@@ -81,7 +81,7 @@ async function user() {
     env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
     options,
   );
-  const entry = { id: data.user.id, client, token: null };
+  const entry = { id: data.user.id, client, token: null, email, password };
   users.push(entry);
   const signed = await required(
     client.auth.signInWithPassword({ email, password }),
@@ -766,6 +766,380 @@ try {
     new URL('../work/acceptance/report-fixture.json', import.meta.url),
     JSON.stringify({ report, snapshot }, null, 2),
   );
+  const certificateId = randomUUID();
+  async function certificateApi(actor, id = certificateId, body) {
+    return fetch(
+      `${origin}/api/recycling-certificates${body ? '' : `?id=${id}`}`,
+      {
+        method: body ? 'POST' : 'GET',
+        body,
+        headers: actor ? { Authorization: `Bearer ${actor.token}` } : {},
+        signal: AbortSignal.timeout(60000),
+      },
+    );
+  }
+  function certificateForm(id = certificateId, bytes = pdf, updates = {}) {
+    const form = new FormData();
+    for (const [key, value] of Object.entries({
+      id,
+      plantId: plant.id,
+      title: '수용시험 재활용 증빙',
+      issuer: '가상 시험 발급기관',
+      number: 'SYNTHETIC-ONLY',
+      issuedOn: '2026-09-01',
+      panelCount: '12',
+      ...updates,
+    }))
+      form.set(key, value);
+    form.set(
+      'file',
+      new Blob([bytes], { type: 'application/pdf' }),
+      'synthetic-certificate.pdf',
+    );
+    return form;
+  }
+  for (const actor of [null, client, expert, otherOwner])
+    check(
+      [401, 403, 404].includes(
+        (await certificateApi(actor, certificateId, certificateForm())).status,
+      ),
+      'non-admin / anonymous / other organization certificate upload blocked',
+    );
+  check(
+    (
+      await certificateApi(
+        owner,
+        certificateId,
+        certificateForm(certificateId, pdf, { issuedOn: '2026-02-30' }),
+      )
+    ).status === 400,
+    'impossible certificate date rejected',
+  );
+  check(
+    (
+      await certificateApi(
+        owner,
+        certificateId,
+        certificateForm(
+          certificateId,
+          Buffer.from('<script>not a PDF</script>'),
+        ),
+      )
+    ).status === 400,
+    'spoofed certificate extension rejected',
+  );
+  const certificatePath = `${organization.id}/${plant.id}/${certificateId}.pdf`;
+  paths.push({ bucket: 'recycling-certificates', path: certificatePath });
+  const registered = await certificateApi(
+    owner,
+    certificateId,
+    certificateForm(),
+  );
+  if (!registered.ok)
+    throw new Error(
+      `Certificate register failed: ${registered.status} ${await registered.text()}`,
+    );
+  let certificate = (await registered.json()).certificate;
+  check(
+    certificate.status === 'pending' && certificate.sha256 === digest(pdf),
+    'certificate registered privately with original checksum',
+  );
+  check(
+    (await certificateApi(owner, certificateId, certificateForm())).ok,
+    'certificate retry is idempotent',
+  );
+  check(
+    (await certificateApi(owner, certificateId, certificateForm(randomUUID())))
+      .status === 409,
+    'duplicate certificate upload blocked',
+  );
+  check(
+    (await certificateApi(client)).status === 404,
+    'pending certificate invisible to requester',
+  );
+  check(
+    (await required(client.client.from('recycling_certificates').select('*')))
+      .length === 0,
+    'pending certificate absent from requester listing',
+  );
+  check(
+    Boolean(
+      (
+        await owner.client
+          .from('recycling_certificates')
+          .update({ title: 'tampered' })
+          .eq('id', certificate.id)
+      ).error,
+    ),
+    'direct certificate metadata writes blocked',
+  );
+  check(
+    Boolean(
+      (
+        await owner.client.storage
+          .from('recycling-certificates')
+          .upload(certificatePath, pdf, {
+            upsert: true,
+            contentType: 'application/pdf',
+          })
+      ).error,
+    ),
+    'certificate bytes cannot be overwritten',
+  );
+  const reviewArgs = {
+    p_id: certificate.id,
+    p_revision: certificate.revision,
+    p_sha256: certificate.sha256,
+    p_publish: true,
+    p_reason: '가상 자료·내용 확인',
+  };
+  const correctionArgs = {
+    p_id: certificate.id,
+    p_revision: certificate.revision,
+    p_plant_id: plant.id,
+    p_title: '수정한 수용시험 재활용 증빙',
+    p_issuer: certificate.issuer,
+    p_number: 'CORRECTED-ONLY',
+    p_issued_on: '2026-09-02',
+    p_panel_count: 10,
+    p_reason: '가상 입력 오타 정정',
+  };
+  for (const actor of [expert, client, otherOwner])
+    check(
+      Boolean(
+        (
+          await actor.client.rpc(
+            'correct_recycling_certificate',
+            correctionArgs,
+          )
+        ).error,
+      ),
+      'non-admin certificate correction denied',
+    );
+  check(
+    Boolean(
+      (await expert.client.rpc('review_recycling_certificate', reviewArgs))
+        .error,
+    ),
+    'expert cannot publish certificate',
+  );
+  check(
+    Boolean(
+      (
+        await owner.client.rpc('review_recycling_certificate', {
+          ...reviewArgs,
+          p_sha256: '0'.repeat(64),
+        })
+      ).error,
+    ),
+    'certificate stale checksum rejected',
+  );
+  certificate = await required(
+    owner.client.rpc('review_recycling_certificate', reviewArgs),
+  );
+  check(
+    Boolean(
+      (await owner.client.rpc('review_recycling_certificate', reviewArgs))
+        .error,
+    ),
+    'certificate stale revision rejected',
+  );
+  check(
+    Boolean(
+      (
+        await owner.client.rpc('correct_recycling_certificate', {
+          ...correctionArgs,
+          p_revision: certificate.revision,
+        })
+      ).error,
+    ),
+    'published certificate must be withdrawn before correction',
+  );
+  const certificateDownload = await certificateApi(client);
+  check(
+    certificateDownload.ok &&
+      digest(Buffer.from(await certificateDownload.arrayBuffer())) ===
+        digest(pdf),
+    'linked requester downloads exact certificate PDF',
+  );
+  check(
+    certificateDownload.headers.get('cache-control') === 'private, no-store' &&
+      certificateDownload.headers
+        .get('content-disposition')
+        ?.startsWith('attachment;'),
+    'certificate is no-store attachment, not executable inline content',
+  );
+  for (const actor of [null, otherClient, otherOwner])
+    check(
+      [401, 404].includes((await certificateApi(actor)).status),
+      'anonymous / unlinked / cross-organization certificate access denied',
+    );
+  for (const actor of [owner, expert, client])
+    check(
+      Boolean(
+        (
+          await actor.client.storage
+            .from('recycling-certificates')
+            .download(certificatePath)
+        ).error,
+      ),
+      'direct certificate storage read denied even to staff',
+    );
+  check(
+    (
+      await required(
+        client.client
+          .from('recycling_certificates')
+          .select('*')
+          .ilike('title', '%재활용%'),
+      )
+    ).length === 1,
+    'requester can search published certificate',
+  );
+  await required(
+    admin
+      .from('plant_requesters')
+      .delete()
+      .eq('plant_id', plant.id)
+      .eq('requester_user_id', client.id),
+  );
+  check(
+    (await certificateApi(client)).status === 404,
+    'removing plant assignment revokes certificate access in same session',
+  );
+  await required(
+    admin
+      .from('plant_requesters')
+      .insert({ plant_id: plant.id, requester_user_id: client.id }),
+  );
+  certificate = await required(
+    owner.client.rpc('review_recycling_certificate', {
+      ...reviewArgs,
+      p_revision: certificate.revision,
+      p_publish: false,
+      p_reason: '가상 자료 시험 회수',
+    }),
+  );
+  check(
+    (await certificateApi(client)).status === 404,
+    'certificate withdrawal blocks existing requester session',
+  );
+  check(
+    (await required(client.client.from('recycling_certificates').select('*')))
+      .length === 0,
+    'withdrawn certificate disappears from requester list',
+  );
+  check(
+    Boolean(
+      (await owner.client.rpc('correct_recycling_certificate', correctionArgs))
+        .error,
+    ),
+    'stale certificate correction rejected',
+  );
+  check(
+    Boolean(
+      (
+        await owner.client.rpc('correct_recycling_certificate', {
+          ...correctionArgs,
+          p_revision: certificate.revision,
+          p_plant_id: randomUUID(),
+        })
+      ).error,
+    ),
+    'certificate cannot move to an inaccessible plant',
+  );
+  check(
+    Boolean(
+      (
+        await owner.client.rpc('correct_recycling_certificate', {
+          ...correctionArgs,
+          p_revision: certificate.revision,
+          p_issued_on: '2999-01-01',
+        })
+      ).error,
+    ),
+    'future certificate correction date rejected',
+  );
+  const corrected = await required(
+    owner.client.rpc('correct_recycling_certificate', {
+      ...correctionArgs,
+      p_revision: certificate.revision,
+    }),
+  );
+  check(
+    corrected.status === 'pending' &&
+      corrected.title === correctionArgs.p_title &&
+      corrected.panel_count === 10 &&
+      corrected.reviewed_by === null,
+    'correction returns certificate to pending with new metadata',
+  );
+  check(
+    corrected.sha256 === certificate.sha256 &&
+      corrected.storage_path === certificate.storage_path &&
+      (await certificateApi(client)).status === 404,
+    'correction preserves original bytes and requires fresh publication',
+  );
+  certificate = corrected;
+  if (process.env.SOLAR_UI_ACCEPTANCE === '1') {
+    await required(
+      owner.client.rpc('review_recycling_certificate', {
+        ...reviewArgs,
+        p_revision: certificate.revision,
+      }),
+    );
+    console.log(
+      'UI_TEST_READY ' +
+        JSON.stringify({
+          owner: { email: owner.email, password: owner.password },
+          expert: { email: expert.email, password: expert.password },
+          client: { email: client.email, password: client.password },
+          plantId: plant.id,
+          inspectionId: inspection.id,
+          certificateId,
+          reportId,
+        }),
+    );
+    console.log(
+      'Synthetic-only UI test pause. Send a newline to clean up. Auto-cleanup after 45 minutes.',
+    );
+    await new Promise((resolve) => {
+      const timer = setTimeout(resolve, 45 * 60 * 1000);
+      process.stdin.once('data', () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+    // Browser logout revokes that actor's Auth session. Renew this test's
+    // clients so the final withdrawal checks prove authorization, not merely 401.
+    for (const actor of users) {
+      const signed = await required(
+        actor.client.auth.signInWithPassword({
+          email: actor.email,
+          password: actor.password,
+        }),
+      );
+      actor.token = signed.session.access_token;
+    }
+    // UI tests may have added certificates; remove only this generated organization's files.
+    const uiCertificates = await required(
+      admin
+        .from('recycling_certificates')
+        .select('storage_path')
+        .eq('organization_id', organization.id),
+    );
+    for (const row of uiCertificates)
+      if (
+        !paths.some(
+          (p) =>
+            p.bucket === 'recycling-certificates' &&
+            p.path === row.storage_path,
+        )
+      )
+        paths.push({
+          bucket: 'recycling-certificates',
+          path: row.storage_path,
+        });
+  }
   await required(
     owner.client.rpc('transition_report_status', {
       p_report_id: reportId,
@@ -794,10 +1168,48 @@ try {
     ),
     'withdrawal removes direct PDF storage access',
   );
+  await required(client.client.auth.signOut({ scope: 'global' }));
+  check(
+    (await api(client)).status === 401,
+    'logged-out Auth token is rejected before report authorization',
+  );
+  const renewed = await required(
+    client.client.auth.signInWithPassword({
+      email: client.email,
+      password: client.password,
+    }),
+  );
+  client.token = renewed.session.access_token;
+  check(
+    (await api(client)).status === 404,
+    'renewed session still cannot read withdrawn report',
+  );
 } catch (error) {
   failure = error;
   console.error(`Acceptance failure: ${error.message}`);
 } finally {
+  // Collect only objects belonging to this run's generated organizations,
+  // including extra evidence created through the browser during an opted-in UI test.
+  for (const organizationId of organizations)
+    for (const [table, bucket] of [
+      ['report_images', 'report-images'],
+      ['recycling_certificates', 'recycling-certificates'],
+    ]) {
+      const result = await admin
+        .from(table)
+        .select('storage_path')
+        .eq('organization_id', organizationId);
+      if (result.error)
+        cleanupErrors.push(`${table} collection: ${result.error.message}`);
+      else
+        for (const row of result.data || [])
+          if (
+            !paths.some(
+              (p) => p.bucket === bucket && p.path === row.storage_path,
+            )
+          )
+            paths.push({ bucket, path: row.storage_path });
+    }
   for (const object of paths) {
     const r = await admin.storage.from(object.bucket).remove([object.path]);
     if (r.error) cleanupErrors.push(`storage: ${r.error.message}`);
@@ -810,6 +1222,7 @@ try {
   }
   for (const organizationId of organizations) {
     for (const table of [
+      'recycling_certificates',
       'reports',
       'report_images',
       'findings',

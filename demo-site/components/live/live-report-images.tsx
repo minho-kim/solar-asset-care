@@ -22,6 +22,7 @@ export function ReportImagesView({
   const inspectionId = inspection || inspections[0]?.id || '';
   const [sourceId, setSourceId] = useState('');
   const [photos, setPhotos] = useState<ReportImage[]>([]);
+  const [photosLoading, setPhotosLoading] = useState(true);
   const [caption, setCaption] = useState('');
   const [masks, setMasks] = useState<Rect[]>([]);
   const [rectangle, setRectangle] = useState({
@@ -62,6 +63,7 @@ export function ReportImagesView({
         .order('created_at')
         .then(({ data, error }) => {
           if (active) {
+            setPhotosLoading(false);
             if (error) setNotice('사진 목록을 불러오지 못했습니다.');
             else setPhotos((data || []) as unknown as ReportImage[]);
           }
@@ -148,6 +150,7 @@ export function ReportImagesView({
       return;
     }
     setMasks([...masks, r]);
+    setNotice('');
     requestId.current = '';
   }
   async function save(event: SyntheticEvent<HTMLFormElement>) {
@@ -226,6 +229,7 @@ export function ReportImagesView({
             selectSource('');
             setVerified({});
             setPhotos([]);
+            setPhotosLoading(true);
           }}
         >
           <option value="" disabled>
@@ -318,6 +322,7 @@ export function ReportImagesView({
                         size="sm"
                         onClick={() => {
                           setMasks(masks.filter((_, index) => i !== index));
+                          setNotice('');
                           requestId.current = '';
                         }}
                       >
@@ -353,7 +358,12 @@ export function ReportImagesView({
         승인 사진은 점검당 최대 12장입니다. 사진이나 가림 영역을 바꾸려면 새
         사진으로 저장해 주세요.
       </p>
-      {!photos.length && (
+      {inspectionId && photosLoading && (
+        <output className="block text-base">
+          저장된 사진을 불러오는 중입니다.
+        </output>
+      )}
+      {(!inspectionId || !photosLoading) && !photos.length && (
         <p className="rounded-xl border bg-white p-5 text-sm">
           아직 준비한 보고서 사진이 없습니다.
         </p>
