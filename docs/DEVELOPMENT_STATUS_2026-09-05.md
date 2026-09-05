@@ -1,8 +1,8 @@
 # 🛠️ 실제 서비스 개발·검증 현황
 
-- 기준일: 2026-09-05 (한국시간)
-- 공개배포: 보류. 기존 공개 데모는 변경하지 않았다.
-- 대상: `solar-asset-care`의 로컬 운영 화면과 독립 Supabase 프로젝트만 변경했다.
+- 기준일: 2026-09-06 (한국시간, 아래 9월 5일 개발 기록에 배포 결과 추가)
+- 공개배포: 사용자 요청에 따라 기존 Sites 주소에 최신 사이트 배포 완료. [배포 기록](RELEASE_2026-09-06.md)
+- 대상: `solar-asset-care`의 운영 화면·기존 공개 사이트와 독립 Supabase 프로젝트. 다른 프로젝트는 변경하지 않았다.
 - 판단: 주요 점검·발행 흐름은 실제 계정으로 시험했다. 요구서 전체 구현 및 상용 검수 완료 상태는 아니다.
 
 ## ✅ 이번에 실제 저장·사용하도록 연결한 기능
@@ -114,7 +114,7 @@ PDF는 한글 글꼴, A4, 최소 11pt, 자동 페이지 나눔과 승인 사진�
 | 고객용 이미지·보고서 시각화 | 사진·수동 가림·마커·차트 연결 완료. 지도, TIFF 미리보기, 실제 사진·가림 조작·HTML 인쇄 실기 검수 남음 |
 | 대용량·복수 업로드 | 복수·분할 재개 및 7MB 전송 시험 완료. 50MB 경계·휴대폰 실기·다수 동시 사용자·임시 객체 자동 정리 남음 |
 | 재활용 인증서 | 실제 등록·확인·공개·회수·정정·검색·권한별 다운로드 구현/합성 시험 완료. 실제 발급기관의 대표 파일·전자서명 검수, 브라우저 파일 선택·10MB 경계/동시 업로드 실기 남음 |
-| 메일·계정 운영 | 가입·초대·비밀번호 재설정 메일 수신과 만료·재사용, 운영 주소, 관리자 MFA·봇 방지 |
+| 메일·계정 운영 | 현재 공개 주소로 인증 복귀 수정·합성 링크 생성 검증 완료. 일반 고객용 SMTP 연결, 실제 수신과 만료·재사용, 관리자 MFA·봇 방지 남음 |
 | 운영 복구 | DB와 파일의 백업·복원 시험, 보존·삭제 정책, 오류 감시 |
 | 종단 검수 | 승인된 대표 자료 3건으로 모바일을 포함한 전체 흐름. 업체 3곳 회신·선택·후속 조치까지 포함 |
 
@@ -126,7 +126,8 @@ PDF는 한글 글꼴, A4, 최소 11pt, 자동 페이지 나눔과 승인 사진�
 - DB: `supabase/tests/operational_workflow.sql`은 최종 `ROLLBACK`까지 전체 실행한다.
 - 실제 세션: 로컬 서버 실행 후 `SOLAR_ACCEPTANCE_RUN=1 node scripts/verify-live-workflow.mjs`. 지정된 개발 프로젝트에 합성 자료만 생성·정리한다. 서버 비밀 키는 CLI·프로세스 메모리에서만 사용한다. 파일 전달용 서버 비밀값은 Git 제외 로컬 환경 파일에 둔다.
 - 역할별 화면 시험: 위 명령에 `SOLAR_UI_ACCEPTANCE=1`을 추가하면 합성 계정의 로그인 정보만 출력하고 45분 이내 또는 Enter 입력까지 기다린다. 기존 사용자로는 시험하지 않는다. 끝나면 브라우저에서 임시 계정을 로그아웃한 뒤 Enter를 보내 정리하고, 성공·실패 어느 경우든 잔여 계정/객체를 확인한다. 인증 토큰·서버 키는 출력하지 않는다.
-- PDF 글꼴은 저장소의 정적 파일을 사용한다. 향후 호스트에는 `REPORT_ASSET_ORIGIN`과 서버 전용 `SUPABASE_SECRET_KEYS` 설정이 필요하다. 공개 호스팅은 아직 검증·승인하지 않았다.
+- PDF 글꼴은 저장소의 정적 파일을 사용한다. 현재 Sites에 `REPORT_ASSET_ORIGIN`과 서버 전용 `SUPABASE_SECRET_KEYS`를 설정했다. 사용자 요청으로 공개 배포했고 코드 검사 47개·온라인 Auth/API/Storage 시험 90개를 통과했다. 위 9월 5일의 46개·88개 기록은 당시 로컬 시험 결과다.
+- 온라인 재검증은 추가로 `SOLAR_ACCEPTANCE_DEPLOYED=1` 및 `SOLAR_ACCEPTANCE_ORIGIN=https://solar-asset-care-demo.kimminho0914.chatgpt.site`를 명시해야 한다. 다른 원격 주소나 온라인에서의 대화형 시험 대기는 거부한다. 합성 계정만 사용하고 종료 시 정리한다.
 - Supabase 스킬의 변경 이력·최소 권한·검증 원칙을 따라 새 표의 익명·직접 쓰기를 차단하고 업무 함수·역할 시험을 추가했다. PDF 스킬의 렌더 검증에서 CFF 글꼴 문제를 발견해 정적 TrueType으로 교체했다.
 
 참고: [Supabase RLS](https://supabase.com/docs/guides/database/postgres/row-level-security), [비밀번호 보안 경고](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection), [PDF 생성 API](https://pdf-lib.js.org/docs/api/classes/pdfdocument), [Nanum Gothic 글꼴·라이선스](https://github.com/google/fonts/tree/main/ofl/nanumgothic).
