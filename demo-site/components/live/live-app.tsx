@@ -44,6 +44,7 @@ import type { Database, Json, Tables } from '@/lib/supabase/database.types';
 import { AssessmentsView, CalculationSettingsView } from './live-assessments';
 import { FindingsEditorView } from './live-findings';
 import { requestReportPdf } from '@/lib/report-download';
+import { koreanDate, parseKoreanInput } from '@/lib/operational-assessment';
 
 type Plant = Tables<'plants'>;
 type Inspection = Tables<'inspections'>;
@@ -1105,6 +1106,7 @@ function AdminConsole({
             <Button
               variant="outline"
               size="sm"
+              aria-label="새로고침"
               onClick={() => void refresh()}
               disabled={loading}
             >
@@ -1114,6 +1116,7 @@ function AdminConsole({
             <Button
               variant="ghost"
               size="sm"
+              aria-label="로그아웃"
               onClick={() => supabase.auth.signOut()}
             >
               <LogOut /> <span className="hidden md:inline">로그아웃</span>
@@ -1867,7 +1870,7 @@ function InspectionsView(
 ) {
   const [plantId, setPlantId] = useState('');
   const [code, setCode] = useState(
-    `INS-${new Date().toISOString().slice(0, 10).replaceAll('-', '')}`,
+    () => `INS-${koreanDate().replaceAll('-', '')}`,
   );
   const [purpose, setPurpose] = useState('정기 열화상 점검');
   const [scheduledAt, setScheduledAt] = useState('');
@@ -1896,10 +1899,10 @@ function InspectionsView(
             purpose: purpose.trim() || null,
             status: scheduledAt ? 'scheduled' : 'requested',
             scheduled_at: scheduledAt
-              ? new Date(scheduledAt).toISOString()
+              ? parseKoreanInput(scheduledAt, '예정 일시')
               : null,
-            due_at: dueAt ? new Date(dueAt).toISOString() : null,
-            capture_timezone: backendConfig.displayTimezone,
+            due_at: dueAt ? parseKoreanInput(dueAt, '완료 목표') : null,
+            capture_timezone: 'Asia/Seoul',
             assigned_expert_user_id: expertId || null,
             created_by: props.session.user.id,
             notes: notes.trim() || null,

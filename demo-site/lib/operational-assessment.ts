@@ -63,12 +63,15 @@ export function toKoreanInput(iso: string) {
     .toISOString()
     .slice(0, 16);
 }
-export function parseKoreanInput(local: string) {
+export function parseKoreanInput(local: string, label = '촬영 시각') {
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(local))
-    throw new Error('촬영 시각을 입력해 주세요.');
-  const iso = new Date(`${local}:00+09:00`).toISOString();
+    throw new Error(`${label} 입력란을 확인해 주세요.`);
+  const parsed = new Date(`${local}:00+09:00`);
+  if (!Number.isFinite(parsed.getTime()))
+    throw new Error(`${label}에 올바른 날짜와 시간을 입력해 주세요.`);
+  const iso = parsed.toISOString();
   if (toKoreanInput(iso) !== local)
-    throw new Error('올바른 촬영 시각을 입력해 주세요.');
+    throw new Error(`${label}에 올바른 날짜와 시간을 입력해 주세요.`);
   return iso;
 }
 function finite(n: number, min: number, max: number, label: string) {
