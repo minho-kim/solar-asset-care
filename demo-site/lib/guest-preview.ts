@@ -1,4 +1,5 @@
 // Public, synthetic examples only. Never populate these from production queries.
+export const guestReportPdfPath = '/samples/solar-diagnosis-sample.pdf';
 export const guestRoles = {
   client: '의뢰인',
   expert: '전문가',

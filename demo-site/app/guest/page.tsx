@@ -6,12 +6,15 @@ import {
   Building2,
   ClipboardCheck,
   FileCheck2,
+  Download,
+  ExternalLink,
   ShieldCheck,
   SunMedium,
 } from 'lucide-react';
 import { buttonVariants } from '@/components/ui/button';
 import {
   guestRoles,
+  guestReportPdfPath,
   guestPlants,
   guestInspections,
   guestFindings,
@@ -252,6 +255,34 @@ function Content({
             <p className="mt-5 text-base leading-7">
               오염과 고온 의심 지점을 확인했습니다. 청소 및 현장 점검 후 발전량
               변화를 추적하는 예시입니다.
+            </p>
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+              <a
+                href={guestReportPdfPath}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={buttonVariants({
+                  className: 'min-h-11 whitespace-normal text-center',
+                })}
+              >
+                <ExternalLink aria-hidden="true" />
+                샘플 보고서 PDF 열기 (새 탭)
+              </a>
+              <a
+                href={guestReportPdfPath}
+                download="SolarScope-샘플-진단보고서.pdf"
+                className={buttonVariants({
+                  variant: 'outline',
+                  className: 'min-h-11',
+                })}
+              >
+                <Download aria-hidden="true" />
+                PDF 다운로드
+              </a>
+            </div>
+            <p className="mt-3 text-sm leading-6 text-slate-500">
+              PDF를 열어 인쇄할 수 있습니다. A4 · 실제 크기(100%)로 출력하세요.
+              휴대폰에서는 다운로드 후 PDF 앱의 공유·인쇄 메뉴를 이용하세요.
             </p>
           </Panel>
           <Panel title="상세 소견">

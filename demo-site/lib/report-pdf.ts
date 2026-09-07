@@ -58,6 +58,7 @@ export async function renderReportPdf(
   snapshot: Pick<Tables<'report_snapshots'>, 'content' | 'sha256'>,
   fontBytes: Uint8Array,
   loadImage?: (image: ReportImage) => Promise<Uint8Array>,
+  options: { sample?: boolean } = {},
 ) {
   const c = snapshot.content as unknown as Content;
   if (
@@ -83,7 +84,9 @@ export async function renderReportPdf(
   const charset = new Set(font.getCharacterSet());
   pdf.setTitle(c.title);
   pdf.setAuthor(c.organization.name);
-  pdf.setSubject(`보고서 ${report.version}차 · 검토본 ${snapshot.sha256}`);
+  pdf.setSubject(
+    `${options.sample ? '가상 자료 · 샘플 보고서 · 실제 진단 아님 / ' : ''}보고서 ${report.version}차 · 검토본 ${snapshot.sha256}`,
+  );
   pdf.setCreator(PDF_RENDERER_VERSION);
   pdf.setProducer('Solar Asset Care');
   pdf.setLanguage('ko-KR');
@@ -101,13 +104,18 @@ export async function renderReportPdf(
       );
     page = pdf.addPage(PageSizes.A4);
     y = height - 48;
-    page.drawText('SOLAR ASSET CARE', {
-      x: margin,
-      y,
-      size: 11,
-      font,
-      color: rgb(0.06, 0.42, 0.39),
-    });
+    page.drawText(
+      options.sample
+        ? 'SOLAR ASSET CARE · 샘플 / 실제 진단 아님'
+        : 'SOLAR ASSET CARE',
+      {
+        x: margin,
+        y,
+        size: 11,
+        font,
+        color: rgb(0.06, 0.42, 0.39),
+      },
+    );
     page.drawLine({
       start: { x: margin, y: y - 12 },
       end: { x: width - margin, y: y - 12 },
@@ -167,6 +175,10 @@ export async function renderReportPdf(
     `${c.inspection.inspection_code} · 보고서 ${report.version}차 · ${c.organization.name}`,
     11,
   );
+  if (options.sample)
+    paragraph(
+      '둘러보기용 가상 자료입니다. 실제 현장 측정·전문가 승인·발행을 거친 보고서가 아닙니다. 고객 원본 사진과 개인정보는 포함하지 않습니다.',
+    );
   heading('설비·점검 정보');
   paragraph(
     `발전소: ${c.plant.name}\n주소: ${c.plant.address || '미입력'}\n용량: ${fmt(c.plant.capacity_kw, ' kW')} / 가동 시작일: ${c.plant.commissioned_on}`,
@@ -307,6 +319,7 @@ export async function renderReportPdf(
   for (const item of c.maintenance) paragraph(item.title);
   if (!c.maintenance.length)
     paragraph('검토본에 연결된 유지보수 요청이 없습니다.');
+  if (options.sample) newPage();
   heading('계산 기준·재현 정보');
   paragraph(
     `설정 ${c.settings.version}판 (${c.settings.effective_from}부터) / 계산식 ${r.engineVersion}\n일평균 발전시간 ${s.sunHours} h / 연간 열화율 ${s.degradationRatePercent}% / 방위·경사 보정 ${s.orientationFactor}\n자가소비 단가 ${s.selfUseTariff}원/kWh / SMP ${s.smp}원/kWh / REC ${s.rec}원/kWh / REC 가중치 ${s.recWeight}\n적용 단가 ${fmt(r.tariff, '원/kWh')} / 개선가능비율 ${fmt(r.improvementRate * 100, '%')}\n성능비 정상 하한 ${s.prNormal} / 주의 하한 ${s.prWarning}\n최소 일사량 ${s.irradianceMinimum} W/m² / 최대 풍속 ${s.windWarning} m/s\n촬영각도 범위 ${s.angleMinimum}~${s.angleMaximum}° / 최대 거리 ${s.distanceMaximum} m\n온도차 주의 ${s.deltaTWarning} ℃ / 긴급 ${s.deltaTCritical} ℃`,
@@ -319,7 +332,9 @@ export async function renderReportPdf(
     '수치와 금액은 입력 자료·설정에 따른 추정치입니다. 손실량은 0 미만으로 표시하지 않습니다. 회수기간은 해당 기간 회수가능액을 365일로 환산하며 계절 변화·금융비용·세금은 반영하지 않습니다.',
   );
   paragraph(
-    '이 PDF는 승인된 검토 내용을 보관한 파일입니다. 보고서의 현재 발행·회수 상태와 후속 조치 진행 상황은 서비스에서 확인해 주세요.',
+    options.sample
+      ? '이 PDF는 실제 보고서와 같은 출력 양식에 가상 값을 넣은 샘플입니다. 진단 결과·수익·견적·발행 상태를 증명하지 않으며 실제 업무의 근거로 사용할 수 없습니다.'
+      : '이 PDF는 승인된 검토 내용을 보관한 파일입니다. 보고서의 현재 발행·회수 상태와 후속 조치 진행 상황은 서비스에서 확인해 주세요.',
   );
   paragraph(`검토 내용 확인값 (SHA-256)\n${snapshot.sha256}`);
   const pages = pdf.getPages();
@@ -336,12 +351,15 @@ export async function renderReportPdf(
       size: 11,
       font,
     });
-    p.drawText(`보고서 ${report.version}차`, {
-      x: margin,
-      y: 27,
-      size: 11,
-      font,
-    });
+    p.drawText(
+      options.sample ? '샘플 보고서 · 가상 자료' : `보고서 ${report.version}차`,
+      {
+        x: margin,
+        y: 27,
+        size: 11,
+        font,
+      },
+    );
   });
   return pdf.save();
 }
